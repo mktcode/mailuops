@@ -26,6 +26,12 @@ teardown() { teardown_mailuops_env; }
 	assert_failure_status 77
 }
 
+@test "group writable config parent directory is rejected" {
+	chmod 770 "$TEST_ROOT"
+	run mailuops_cmd quota list
+	assert_failure_status 77
+}
+
 @test "invalid address is rejected before Docker" {
 	run mailuops_cmd quota get $'bad\naddr@example.com'
 	assert_failure_status 64

@@ -149,7 +149,7 @@ docker exec "$IMAP_CONTAINER" doveadm -f json quota get -A \
 ### Confirm doveadm exists in the IMAP container
 
 ```bash
-docker exec "$IMAP_CONTAINER" doveadm help | head -40
+docker exec "$IMAP_CONTAINER" doveadm | head -40
 ```
 
 ### Show Dovecot version

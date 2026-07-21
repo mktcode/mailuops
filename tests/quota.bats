@@ -52,3 +52,9 @@ teardown() { teardown_mailuops_env; }
 	run mailuops_cmd quota get info@example.com --json
 	assert_failure_status 65
 }
+
+@test "quota parser rejects stderr mixed with JSON output" {
+	export DOCKER_QUOTA_STDERR="dovecot warning before json"
+	run mailuops_cmd quota get info@example.com --json
+	assert_failure_status 65
+}

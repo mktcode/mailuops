@@ -4,7 +4,7 @@ The normal test suite stays stubbed and safe:
 
 ```bash
 bash -n mailuops
-shellcheck mailuops tests/helpers/test_helper.bash tests/stubs/docker tests/stubs/imapsync
+shellcheck mailuops tests/helpers/test_helper.bash tests/stubs/docker tests/stubs/imapsync tests/integration/*.sh
 shfmt -d mailuops tests
 bats tests
 ```
@@ -120,7 +120,7 @@ fi
 ```bash
 umask 077
 REPO=$PWD
-PROJECT="mailuops-it-$USER-$(date -u +%Y%m%dT%H%M%SZ)"
+PROJECT="mailuops-it-$USER-$(date -u +%Y%m%dt%H%M%Sz)"
 TEST_ROOT=$(mktemp -d "$HOME/.cache/mailuops-it.XXXXXX")
 
 mkdir -p \
@@ -242,7 +242,7 @@ IMAP_CONTAINER=$(docker inspect --format '{{.Name}}' "$IMAP_ID")
 IMAP_CONTAINER=${IMAP_CONTAINER#/}
 printf 'IMAP_CONTAINER=%s\n' "$IMAP_CONTAINER"
 
-docker exec "$IMAP_CONTAINER" doveadm help quota
+docker exec "$IMAP_CONTAINER" doveadm | grep -E "^[[:space:]]*quota[[:space:]]"
 ```
 
 ### 8. Seed the source mailbox

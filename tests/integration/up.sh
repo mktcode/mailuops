@@ -155,14 +155,34 @@ for line in lines:
 path.write_text('\n'.join(out) + '\n')
 PY
 
-if grep -E '"(0\.0\.0\.0|::|[0-9.]+):' "$MAILU_DIR/docker-compose.yml" | grep -v '"127\.0\.0\.1:993:993"'; then
-	printf 'unexpected public or non-IMAPS port binding remains in generated Compose file; aborting.\n' >&2
-	exit 1
-fi
-if [[ $(grep -c '127\.0\.0\.1:993:993' "$MAILU_DIR/docker-compose.yml") -ne 1 ]]; then
-	printf 'expected exactly one loopback IMAPS port binding in generated Compose file; aborting.\n' >&2
-	exit 1
-fi
+MAILU_DIR=$MAILU_DIR python3 - <<'PY'
+from pathlib import Path
+import os
+import sys
+
+path = Path(os.environ['MAILU_DIR']) / 'docker-compose.yml'
+lines = path.read_text().splitlines()
+ports = []
+in_ports = False
+ports_indent = 0
+for line in lines:
+    stripped = line.strip()
+    indent = len(line) - len(line.lstrip(' '))
+    if in_ports:
+        if stripped.startswith('- ') and indent > ports_indent:
+            ports.append(stripped[2:].strip().strip('\"\''))
+            continue
+        if stripped and indent <= ports_indent:
+            in_ports = False
+    if stripped == 'ports:':
+        in_ports = True
+        ports_indent = indent
+
+allowed = ['127.0.0.1:993:993']
+if ports != allowed:
+    print('unexpected published ports in generated Compose file:', ports, file=sys.stderr)
+    raise SystemExit(1)
+PY
 
 printf 'Pulling and starting Mailu stack %s...\n' "$PROJECT"
 cd "$MAILU_DIR"

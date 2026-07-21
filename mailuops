@@ -45,6 +45,7 @@ declare -a FOLDER_MAP_TO=()
 MAILU_CONTAINER_ID=""
 MAILU_CONTAINER_NAME=""
 MIGRATE_LOCK_FD=""
+LOCKED_RUNTIME_DIR=""
 OP_ID=""
 OP_LOG_DIR=""
 OP_RUNTIME_DIR=""
@@ -332,10 +333,14 @@ check_parent_dirs_private() {
 	dir=$(dirname -- "$path")
 	while [[ $dir != / && -n $dir ]]; do
 		if [[ -e $dir ]]; then
-			local mode
+			local mode uid
 			mode=$(mode_octal "$dir")
+			uid=$(owner_uid "$dir")
 			if (((8#$mode & 0022) != 0 && (8#$mode & 01000) == 0)); then
 				fatal 77 "directory $dir is group- or world-writable; make configuration paths private"
+			fi
+			if [[ $uid -ne $EUID && $uid -ne 0 ]] && (((8#$mode & 0200) != 0)); then
+				fatal 77 "directory $dir is owned by uid $uid and writable by its owner; use a root-owned or current-user-owned configuration path"
 			fi
 		fi
 		dir=$(dirname -- "$dir")
@@ -454,7 +459,9 @@ ensure_private_dir() {
 		[[ -d $parent ]] || fatal 73 "parent directory for $what does not exist: $parent"
 		mkdir -m 0700 -- "$path" || fatal 73 "cannot create $what directory: $path"
 	fi
-	local mode
+	local mode uid
+	uid=$(owner_uid "$path")
+	[[ $uid -eq $EUID ]] || fatal 77 "$what directory $path is owned by uid $uid; required uid is $EUID"
 	mode=$(mode_octal "$path")
 	if (((8#$mode & 0077) != 0)); then
 		fatal 77 "$what directory $path is accessible by group or others; required mode is 0700"
@@ -499,7 +506,9 @@ validate_sensitive_file() {
 	local label=$2
 	is_absolute_path "$path" || fatal 65 "$label passfile path is not absolute: $path"
 	[[ -d $SECRETS_DIR && ! -L $SECRETS_DIR ]] || fatal 77 "secrets_dir is not a regular directory: $SECRETS_DIR"
-	local dir_mode
+	local dir_mode dir_uid
+	dir_uid=$(owner_uid "$SECRETS_DIR")
+	[[ $dir_uid -eq $EUID ]] || fatal 77 "secrets_dir $SECRETS_DIR is owned by uid $dir_uid; required uid is $EUID"
 	dir_mode=$(mode_octal "$SECRETS_DIR")
 	if (((8#$dir_mode & 0077) != 0)); then
 		fatal 77 "secrets_dir $SECRETS_DIR is accessible by group or others; required mode is 0700"
@@ -619,11 +628,11 @@ verify_mailbox() {
 
 fetch_quota_single_json() {
 	local mailbox=$1
-	docker exec -- "$MAILU_CONTAINER_NAME" doveadm -f json quota get -u "$mailbox"
+	docker exec -- "$MAILU_CONTAINER_NAME" doveadm -f json quota get -u "$mailbox" 2>&1
 }
 
 fetch_quota_all_json() {
-	docker exec -- "$MAILU_CONTAINER_NAME" doveadm -f json quota get -A
+	docker exec -- "$MAILU_CONTAINER_NAME" doveadm -f json quota get -A 2>&1
 }
 
 normalize_quota_json() {
@@ -828,7 +837,9 @@ validate_profile_file_policy() {
 find_profile() {
 	local address=$1
 	[[ -d $PROFILES_DIR && ! -L $PROFILES_DIR ]] || fatal 66 "migration profiles directory not found or not a directory: $PROFILES_DIR"
-	local dir_mode
+	local dir_mode dir_uid
+	dir_uid=$(owner_uid "$PROFILES_DIR")
+	[[ $dir_uid -eq $EUID ]] || fatal 77 "migration profiles directory $PROFILES_DIR is owned by uid $dir_uid; required uid is $EUID"
 	dir_mode=$(mode_octal "$PROFILES_DIR")
 	if (((8#$dir_mode & 0022) != 0)); then
 		fatal 77 "migration profiles directory $PROFILES_DIR is group- or world-writable"
@@ -932,6 +943,7 @@ acquire_migration_lock() {
 		fi
 		fatal 75 "migration lock already held at $lock_path"
 	fi
+	LOCKED_RUNTIME_DIR=$RUNTIME_DIR
 	: >"$lock_path"
 	printf 'pid=%s address=%s command=%s %s\n' "$$" "$ADDRESS" "$COMMAND" "$SUBCOMMAND" >&"$MIGRATE_LOCK_FD"
 }
@@ -1124,7 +1136,11 @@ run_imapsync_phase() {
 }
 
 migration_preflight() {
+	local locked_runtime_dir=${LOCKED_RUNTIME_DIR:-}
 	load_global_config "$CONFIG_PATH"
+	if [[ -n $locked_runtime_dir && $RUNTIME_DIR != "$locked_runtime_dir" ]]; then
+		fatal 75 "configuration changed migration.runtime_dir after acquiring the migration lock; retry after configuration is stable"
+	fi
 	find_profile "$ADDRESS"
 	validate_profile "$PROFILE_FILE" "$ADDRESS"
 	if [[ -z ${WRAPPER_LOG:-} ]]; then

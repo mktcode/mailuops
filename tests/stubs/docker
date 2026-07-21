@@ -8,6 +8,9 @@ set -Eeuo pipefail
 } >>"$MAILUOPS_STUB_DIR/docker.argv"
 
 quota_single() {
+	if [[ -n ${DOCKER_QUOTA_STDERR:-} ]]; then
+		printf '%s\n' "$DOCKER_QUOTA_STDERR" >&2
+	fi
 	if [[ -n ${DOCKER_QUOTA_SINGLE_FILE:-} ]]; then
 		cat -- "$DOCKER_QUOTA_SINGLE_FILE"
 	else
@@ -21,6 +24,9 @@ JSON
 }
 
 quota_all() {
+	if [[ -n ${DOCKER_QUOTA_STDERR:-} ]]; then
+		printf '%s\n' "$DOCKER_QUOTA_STDERR" >&2
+	fi
 	if [[ -n ${DOCKER_QUOTA_ALL_FILE:-} ]]; then
 		cat -- "$DOCKER_QUOTA_ALL_FILE"
 	else

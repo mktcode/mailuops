@@ -257,22 +257,22 @@ Create one JSON file per source mailbox under `/etc/mailuops/migrations.d`.
 
 The filename is not used as the mailbox identifier. The tool scans profiles and matches the `address` field exactly. This avoids deriving a filesystem path from untrusted command-line input.
 
-Example `/etc/mailuops/migrations.d/zymberi-bau-info.json`:
+Example `/etc/mailuops/migrations.d/example-info.json`:
 
 ```json
 {
   "schema_version": 1,
-  "address": "info@zymberi-bau.de",
+  "address": "info@example.com",
   "source": {
     "host": "imap.old-provider.example",
     "port": 993,
-    "username": "info@zymberi-bau.de",
-    "password_file": "/etc/mailuops/secrets/zymberi-bau-info.source.pass",
+    "username": "info@example.com",
+    "password_file": "/etc/mailuops/secrets/info.source.pass",
     "ca_file": "/etc/ssl/certs/ca-certificates.crt"
   },
   "destination": {
-    "username": "info@zymberi-bau.de",
-    "password_file": "/etc/mailuops/secrets/zymberi-bau-info.destination.pass"
+    "username": "info@example.com",
+    "password_file": "/etc/mailuops/secrets/info.destination.pass"
   },
   "folders": {
     "automap": true,
@@ -350,21 +350,21 @@ Unknown JSON keys are rejected. A misspelled safety-relevant setting must not be
 Create the source and destination passfiles without placing passwords in shell history:
 
 ```bash
-sudo sh -c 'umask 077; read -r -s -p "Source IMAP password: " p; printf "\n"; printf "%s\n" "$p" > /etc/mailuops/secrets/zymberi-bau-info.source.pass'
+sudo bash -c 'umask 077; read -r -s -p "Source IMAP password: " p; printf "\n"; printf "%s\n" "$p" > /etc/mailuops/secrets/info.source.pass; unset p'
 
-sudo sh -c 'umask 077; read -r -s -p "Mailu migration password: " p; printf "\n"; printf "%s\n" "$p" > /etc/mailuops/secrets/zymberi-bau-info.destination.pass'
+sudo bash -c 'umask 077; read -r -s -p "Mailu migration password: " p; printf "\n"; printf "%s\n" "$p" > /etc/mailuops/secrets/info.destination.pass; unset p'
 ```
 
 Then enforce ownership and mode:
 
 ```bash
 sudo chown root:root \
-  /etc/mailuops/secrets/zymberi-bau-info.source.pass \
-  /etc/mailuops/secrets/zymberi-bau-info.destination.pass
+  /etc/mailuops/secrets/info.source.pass \
+  /etc/mailuops/secrets/info.destination.pass
 
 sudo chmod 0600 \
-  /etc/mailuops/secrets/zymberi-bau-info.source.pass \
-  /etc/mailuops/secrets/zymberi-bau-info.destination.pass
+  /etc/mailuops/secrets/info.source.pass \
+  /etc/mailuops/secrets/info.destination.pass
 ```
 
 Each passfile contains the password on its first line. The utility rejects:
@@ -384,13 +384,13 @@ Use a temporary Mailu password for migration where operationally possible. Rotat
 ### Show one mailbox
 
 ```bash
-sudo mailuops quota get info@zymberi-bau.de
+sudo mailuops quota get info@example.com
 ```
 
 Example output:
 
 ```text
-Mailbox:        info@zymberi-bau.de
+Mailbox:        info@example.com
 Storage used:   1.08 MiB
 Storage limit:  1.40 GiB
 Usage:          0.08%
@@ -401,7 +401,7 @@ The utility first verifies the mailbox with Dovecot's user database and then run
 
 ```bash
 docker exec mailu-imap-1 \
-  doveadm -f json quota get -u info@zymberi-bau.de
+  doveadm -f json quota get -u info@example.com
 ```
 
 Dovecot reports storage values in kilobytes. `mailuops` treats those values as 1024-byte KiB, converts them to IEC display units, and calculates a non-rounded percentage from the reported values.
@@ -427,7 +427,7 @@ Example output:
 ```text
 MAILBOX                                      USED       LIMIT     USAGE   MESSAGES
 archive@example.net                    37.24 GiB   unlimited       n/a     182340
-info@zymberi-bau.de                     1.08 MiB    1.40 GiB     0.08%         24
+info@example.com                         1.08 MiB    1.40 GiB     0.08%         24
 postmaster@example.net                       0 B    1.00 GiB     0.00%          0
 ```
 
@@ -445,7 +445,7 @@ Rows are sorted by mailbox address for deterministic output. The command fails i
 Add `--json`:
 
 ```bash
-sudo mailuops quota get info@zymberi-bau.de --json
+sudo mailuops quota get info@example.com --json
 sudo mailuops quota list --json
 ```
 
@@ -453,7 +453,7 @@ Single-mailbox schema:
 
 ```json
 {
-  "mailbox": "info@zymberi-bau.de",
+  "mailbox": "info@example.com",
   "quota_root": "User quota",
   "storage": {
     "used_kib": 1110,
@@ -479,7 +479,7 @@ The JSON percentage is a number in the range 0 through 100, not a fraction. A mi
 Run a probe before every initial migration and after every profile change:
 
 ```bash
-sudo mailuops migrate probe info@zymberi-bau.de
+sudo mailuops migrate probe info@example.com
 ```
 
 The probe performs these checks in order:
@@ -500,12 +500,12 @@ The probe forces IMAPS and certificate verification on both sides. It does not c
 A successful probe ends with a summary similar to:
 
 ```text
-Migration probe: info@zymberi-bau.de
-Source:      info@zymberi-bau.de @ imap.old-provider.example:993 (verified IMAPS)
-Destination: info@zymberi-bau.de @ mail.example.net:993 (verified IMAPS)
+Migration probe: info@example.com
+Source:      info@example.com @ imap.old-provider.example:993 (verified IMAPS)
+Destination: info@example.com @ mail.example.net:993 (verified IMAPS)
 Mailu quota: 1.08 MiB used of 1.40 GiB
 Login test:  passed
-Folder plan: passed; see /var/log/mailuops/20260721T143210Z-info_zymberi-bau.de-a83f91dcb204/
+Folder plan: passed; see /var/log/mailuops/20260721T143210Z-info_example.com-fb1a4757f83b/
 Result:      safe to run an additive migration
 ```
 
@@ -516,7 +516,7 @@ Inspect the folder plan in the terminal and log. Pay particular attention to Sen
 Interactive run:
 
 ```bash
-sudo mailuops migrate run info@zymberi-bau.de
+sudo mailuops migrate run info@example.com
 ```
 
 After validation, login testing, and the dry folder plan, the tool prints a redacted operation summary and requires an exact confirmation:
@@ -525,13 +525,13 @@ After validation, login testing, and the dry folder plan, the tool prints a reda
 This operation will add or update mail in the destination mailbox.
 It will not delete or expunge messages on either endpoint.
 
-Type the destination mailbox exactly to continue: info@zymberi-bau.de
+Type the destination mailbox exactly to continue: info@example.com
 ```
 
 For controlled automation:
 
 ```bash
-sudo mailuops migrate run info@zymberi-bau.de --yes
+sudo mailuops migrate run info@example.com --yes
 ```
 
 `--yes` suppresses only the exact-address prompt. It does not skip the lock, file checks, TLS checks, mailbox check, quota check, login test, or dry folder plan. A noninteractive invocation without `--yes` fails.
@@ -610,7 +610,7 @@ Each probe or run creates a private operation directory under `migration.log_dir
 
 ```text
 /var/log/mailuops/
-└── 20260721T143210Z-info_zymberi-bau.de-a83f91dcb204/
+└── 20260721T143210Z-info_example.com-fb1a4757f83b/
     ├── wrapper.log
     ├── 01-login.imapsync.log
     ├── 01-login.console.log
@@ -626,7 +626,7 @@ Probe operations normally contain only the first two phases. Run operations cont
 
 Operation identifiers use a sanitized mailbox fragment plus a short SHA-256 suffix. Raw addresses are never used unchecked as filesystem paths.
 
-The runtime directory contains the global lock, phase-specific PID files, and private temporary data. Stale imapsync PID files are not deleted automatically merely because they exist; the tool verifies whether the referenced process is still alive and fails safely when ownership is unclear.
+The runtime directory contains the global lock, phase-specific PID files, and private temporary data. Each phase receives a unique PID file and imapsync is invoked with pidfile locking; the wrapper does not blindly delete PID files that may belong to an active process.
 
 Logs can contain mailbox names, server names, folder names, message statistics, and imapsync diagnostics. They must be treated as customer data. Password values must never appear, but passfile paths and account metadata may appear in diagnostic context.
 

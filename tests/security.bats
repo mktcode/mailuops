@@ -11,11 +11,25 @@ teardown() { teardown_mailuops_env; }
 	[ ! -e "$MAILUOPS_STUB_DIR/imapsync.argv" ]
 }
 
+@test "0660 passfile is rejected before imapsync" {
+	chmod 660 "$TEST_ROOT/secrets/source.pass"
+	run mailuops_cmd migrate probe info@example.com
+	assert_failure_status 77
+	[ ! -e "$MAILUOPS_STUB_DIR/imapsync.argv" ]
+}
+
 @test "symlink passfile is rejected" {
 	rm "$TEST_ROOT/secrets/source.pass"
 	ln -s "$TEST_ROOT/secrets/destination.pass" "$TEST_ROOT/secrets/source.pass"
 	run mailuops_cmd migrate probe info@example.com
 	assert_failure_status 77
+}
+
+@test "missing CA file is rejected before imapsync" {
+	rm "$TEST_ROOT/ca.pem"
+	run mailuops_cmd migrate probe info@example.com
+	assert_failure_status 69
+	[ ! -e "$MAILUOPS_STUB_DIR/imapsync.argv" ]
 }
 
 @test "generated imapsync argv forces TLS verification and no-expunge" {
