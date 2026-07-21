@@ -73,9 +73,9 @@ Implement this minimal layout:
     └── security.bats
 ```
 
-`mailuops` must be executable and self-contained. Do not split runtime code into sourced shell files. A single file reduces deployment errors and prevents config/source confusion.
+`mailuops` must be executable and self-contained at runtime. This means the installed program is one Bash file and must not `source` runtime libraries or configuration files. Keep it maintainable with small, named functions, clear sections, ShellCheck, shfmt, and tests rather than runtime includes. This is intentional: for a privileged operational tool, a single audited entrypoint avoids partial deployments, library path ambiguity, and config/source confusion.
 
-Test helpers may be sourced by Bats tests.
+Tests, fixtures, and test helpers may be split across files and Bats helpers may be sourced. If the runtime grows beyond what is maintainable as one file, prefer an explicit build/bundling step that produces one reviewed executable artifact, or reconsider the implementation language in a future version.
 
 ## Runtime language and shell rules
 
