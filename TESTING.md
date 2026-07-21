@@ -11,6 +11,14 @@ bats tests
 
 A real Mailu test is useful, but it must be treated as an **optional manual integration test**. It pulls images, starts containers, creates Docker networks, binds ports, and writes mail data. Do not run it implicitly from `bats`, CI, or a generic `make test` target.
 
+A read-only integration preflight is available and safe to run:
+
+```bash
+make integration-preflight
+```
+
+It checks tools, Docker access, port 993, stale `mailuops-it-*` Docker resources, and the stubbed test suite. It does not pull images, start containers, remove containers, or modify host files.
+
 ## What the Mailu 2024.06 docs confirm
 
 Checked against the Mailu 2024.06 documentation:
@@ -362,7 +370,13 @@ rm -rf -- "$TEST_ROOT"
 
 ## Future automation
 
-After one or two manual successful runs, add optional scripts under `tests/integration/`:
+The repository currently includes a safe read-only preflight:
+
+```text
+tests/integration/preflight.sh
+```
+
+After one or two manual successful runs, add optional stack-management scripts under `tests/integration/`:
 
 ```text
 tests/integration/up.sh
