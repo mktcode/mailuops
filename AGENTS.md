@@ -1,18 +1,18 @@
 # AGENTS.md
 
-This file is the implementation contract for coding agents working on `mailu-ops`.
+This file is the implementation contract for coding agents working on `mailuops`.
 
 Read `README.md` first. The README defines the user-facing behavior. This file defines the engineering constraints necessary to implement that behavior safely.
 
 ## Project objective
 
-Implement one auditable Bash CLI, `mailu-ops`, for a Mailu 2024.06 customer server. It must support exactly these operational commands in version 1:
+Implement one auditable Bash CLI, `mailuops`, for a Mailu 2024.06 customer server. It must support exactly these operational commands in version 1:
 
 ```text
-mailu-ops quota get ADDRESS [--json]
-mailu-ops quota list [--json]
-mailu-ops migrate probe ADDRESS
-mailu-ops migrate run ADDRESS [--yes]
+mailuops quota get ADDRESS [--json]
+mailuops quota list [--json]
+mailuops migrate probe ADDRESS
+mailuops migrate run ADDRESS [--yes]
 ```
 
 Global `--config`, `--verbose`, `--help`, and `--version` are also required.
@@ -56,7 +56,7 @@ Implement this minimal layout:
 
 ```text
 .
-├── mailu-ops
+├── mailuops
 ├── README.md
 ├── AGENTS.md
 ├── examples/
@@ -73,7 +73,7 @@ Implement this minimal layout:
     └── security.bats
 ```
 
-`mailu-ops` must be executable and self-contained. Do not split runtime code into sourced shell files. A single file reduces deployment errors and prevents config/source confusion.
+`mailuops` must be executable and self-contained. Do not split runtime code into sourced shell files. A single file reduces deployment errors and prevents config/source confusion.
 
 Test helpers may be sourced by Bats tests.
 
@@ -146,12 +146,12 @@ Implement strict parsing. Options after an unexpected positional argument must n
 Accepted forms:
 
 ```text
-mailu-ops [--config FILE] [--verbose] quota get ADDRESS [--json]
-mailu-ops [--config FILE] [--verbose] quota list [--json]
-mailu-ops [--config FILE] [--verbose] migrate probe ADDRESS
-mailu-ops [--config FILE] [--verbose] migrate run ADDRESS [--yes]
-mailu-ops --help
-mailu-ops --version
+mailuops [--config FILE] [--verbose] quota get ADDRESS [--json]
+mailuops [--config FILE] [--verbose] quota list [--json]
+mailuops [--config FILE] [--verbose] migrate probe ADDRESS
+mailuops [--config FILE] [--verbose] migrate run ADDRESS [--yes]
+mailuops --help
+mailuops --version
 ```
 
 Reject:
@@ -210,7 +210,7 @@ A signal should result in a conventional nonzero status. Forward termination to 
 Default path:
 
 ```text
-/etc/mailu-ops/config.json
+/etc/mailuops/config.json
 ```
 
 Required schema:
@@ -224,8 +224,8 @@ Required schema:
     "quota_root": "User quota"
   },
   "migration": {
-    "profiles_dir": "/etc/mailu-ops/migrations.d",
-    "secrets_dir": "/etc/mailu-ops/secrets",
+    "profiles_dir": "/etc/mailuops/migrations.d",
+    "secrets_dir": "/etc/mailuops/secrets",
     "imapsync_binary": "/usr/local/bin/imapsync",
     "destination": {
       "host": "mail.example.net",
@@ -233,9 +233,9 @@ Required schema:
       "ca_file": "/etc/ssl/certs/ca-certificates.crt"
     },
     "source_default_ca_file": "/etc/ssl/certs/ca-certificates.crt",
-    "log_dir": "/var/log/mailu-ops",
-    "state_dir": "/var/lib/mailu-ops",
-    "runtime_dir": "/run/mailu-ops",
+    "log_dir": "/var/log/mailuops",
+    "state_dir": "/var/lib/mailuops",
+    "runtime_dir": "/run/mailuops",
     "timeout_seconds": 120
   }
 }
@@ -276,12 +276,12 @@ Required shape:
     "host": "imap.old-provider.example",
     "port": 993,
     "username": "info@example.com",
-    "password_file": "/etc/mailu-ops/secrets/info.source.pass",
+    "password_file": "/etc/mailuops/secrets/info.source.pass",
     "ca_file": "/etc/ssl/certs/ca-certificates.crt"
   },
   "destination": {
     "username": "info@example.com",
-    "password_file": "/etc/mailu-ops/secrets/info.destination.pass"
+    "password_file": "/etc/mailuops/secrets/info.destination.pass"
   },
   "folders": {
     "automap": true,
@@ -980,15 +980,15 @@ Every fatal diagnostic should answer:
 Examples:
 
 ```text
-mailu-ops: error: multiple running Mailu IMAP containers match project "mailu"; set mailu.imap_container explicitly
+mailuops: error: multiple running Mailu IMAP containers match project "mailu"; set mailu.imap_container explicitly
 ```
 
 ```text
-mailu-ops: error: passfile /etc/mailu-ops/secrets/info.source.pass has mode 0644; required mode is 0600
+mailuops: error: passfile /etc/mailuops/secrets/info.source.pass has mode 0644; required mode is 0600
 ```
 
 ```text
-mailu-ops: error: no migration profile has address "info@example.com"
+mailuops: error: no migration profile has address "info@example.com"
 ```
 
 Do not print stack traces or secret-bearing shell expansions by default. `--verbose` still must not expose secrets.
@@ -1039,16 +1039,16 @@ Do not implement any of the following unless the project owner explicitly change
 A change is complete only when all of the following pass:
 
 ```bash
-bash -n mailu-ops
-shellcheck mailu-ops
-shfmt -d mailu-ops tests
+bash -n mailuops
+shellcheck mailuops
+shfmt -d mailuops tests
 bats tests
 ```
 
 Additionally:
 
-- `./mailu-ops --help` matches the README command surface.
-- `./mailu-ops --version` prints a single stable version string.
+- `./mailuops --help` matches the README command surface.
+- `./mailuops --version` prints a single stable version string.
 - tests run without network or Docker daemon access.
 - JSON output validates with `jq -e`.
 - no test fixture contains a real password.

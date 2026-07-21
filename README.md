@@ -1,17 +1,17 @@
-# mailu-ops
+# mailuops
 
-`mailu-ops` is a small, conservative command-line utility for operating a Mailu customer server and migrating existing IMAP mailboxes into it.
+`mailuops` is a small, conservative command-line utility for operating a Mailu customer server and migrating existing IMAP mailboxes into it.
 
 It provides four operations:
 
 ```text
-mailu-ops quota get ADDRESS
-mailu-ops quota list
-mailu-ops migrate probe ADDRESS
-mailu-ops migrate run ADDRESS
+mailuops quota get ADDRESS
+mailuops quota list
+mailuops migrate probe ADDRESS
+mailuops migrate run ADDRESS
 ```
 
-The repository contains one self-contained Bash entrypoint named `mailu-ops`. It can be run directly from a clone or installed in `/usr/local/sbin`.
+The repository contains one self-contained Bash entrypoint named `mailuops`. It can be run directly from a clone or installed in `/usr/local/sbin`.
 
 The utility is designed for unattended customer-server administration, but it intentionally defaults to fail-closed behavior. It never deletes source or destination messages, never accepts passwords on the command line, never silently disables certificate validation, and never starts a real migration before performing login and folder-mapping probes.
 
@@ -73,35 +73,35 @@ Root execution is recommended on a mail server. A non-root user can run the tool
 Clone the repository and make the entrypoint executable:
 
 ```bash
-git clone YOUR-REPOSITORY-URL mailu-ops
-cd mailu-ops
-chmod 0755 mailu-ops
+git clone YOUR-REPOSITORY-URL mailuops
+cd mailuops
+chmod 0755 mailuops
 ```
 
 Run it from the clone:
 
 ```bash
-./mailu-ops --help
+./mailuops --help
 ```
 
 Or install the executable globally:
 
 ```bash
-sudo install -o root -g root -m 0755 mailu-ops /usr/local/sbin/mailu-ops
+sudo install -o root -g root -m 0755 mailuops /usr/local/sbin/mailuops
 ```
 
 Create the protected configuration layout:
 
 ```bash
 sudo install -d -o root -g root -m 0700 \
-  /etc/mailu-ops \
-  /etc/mailu-ops/migrations.d \
-  /etc/mailu-ops/secrets \
-  /var/log/mailu-ops \
-  /var/lib/mailu-ops
+  /etc/mailuops \
+  /etc/mailuops/migrations.d \
+  /etc/mailuops/secrets \
+  /var/log/mailuops \
+  /var/lib/mailuops
 ```
 
-`/run/mailu-ops` is created at runtime with mode `0700` when necessary.
+`/run/mailuops` is created at runtime with mode `0700` when necessary.
 
 ## Dependencies
 
@@ -123,17 +123,17 @@ Do not assume that `apt install imapsync` is available on every Debian release o
 
 ```text
 Usage:
-  mailu-ops [GLOBAL OPTIONS] quota get ADDRESS [--json]
-  mailu-ops [GLOBAL OPTIONS] quota list [--json]
-  mailu-ops [GLOBAL OPTIONS] migrate probe ADDRESS
-  mailu-ops [GLOBAL OPTIONS] migrate run ADDRESS [--yes]
+  mailuops [GLOBAL OPTIONS] quota get ADDRESS [--json]
+  mailuops [GLOBAL OPTIONS] quota list [--json]
+  mailuops [GLOBAL OPTIONS] migrate probe ADDRESS
+  mailuops [GLOBAL OPTIONS] migrate run ADDRESS [--yes]
 
 Global options:
   --config FILE   Read global configuration from FILE
-                  Default: /etc/mailu-ops/config.json
+                  Default: /etc/mailuops/config.json
   --verbose       Show additional non-secret diagnostics on stderr
   -h, --help      Show help
-  --version       Show the mailu-ops version
+  --version       Show the mailuops version
 ```
 
 There is no interactive password prompt. A migration profile and its passfiles must exist before `migrate probe` or `migrate run` is invoked.
@@ -143,7 +143,7 @@ There is no interactive password prompt. A migration profile and its passfiles m
 The default configuration path is:
 
 ```text
-/etc/mailu-ops/config.json
+/etc/mailuops/config.json
 ```
 
 Example:
@@ -157,8 +157,8 @@ Example:
     "quota_root": "User quota"
   },
   "migration": {
-    "profiles_dir": "/etc/mailu-ops/migrations.d",
-    "secrets_dir": "/etc/mailu-ops/secrets",
+    "profiles_dir": "/etc/mailuops/migrations.d",
+    "secrets_dir": "/etc/mailuops/secrets",
     "imapsync_binary": "/usr/local/bin/imapsync",
     "destination": {
       "host": "mail.example.net",
@@ -166,9 +166,9 @@ Example:
       "ca_file": "/etc/ssl/certs/ca-certificates.crt"
     },
     "source_default_ca_file": "/etc/ssl/certs/ca-certificates.crt",
-    "log_dir": "/var/log/mailu-ops",
-    "state_dir": "/var/lib/mailu-ops",
-    "runtime_dir": "/run/mailu-ops",
+    "log_dir": "/var/log/mailuops",
+    "state_dir": "/var/lib/mailuops",
+    "runtime_dir": "/run/mailuops",
     "timeout_seconds": 120
   }
 }
@@ -177,8 +177,8 @@ Example:
 Protect it:
 
 ```bash
-sudo chown root:root /etc/mailu-ops/config.json
-sudo chmod 0600 /etc/mailu-ops/config.json
+sudo chown root:root /etc/mailuops/config.json
+sudo chmod 0600 /etc/mailuops/config.json
 ```
 
 ### Global configuration fields
@@ -253,11 +253,11 @@ Positive integer passed to both imapsync endpoint timeouts. The default example 
 
 ## Per-mailbox migration profiles
 
-Create one JSON file per source mailbox under `/etc/mailu-ops/migrations.d`.
+Create one JSON file per source mailbox under `/etc/mailuops/migrations.d`.
 
 The filename is not used as the mailbox identifier. The tool scans profiles and matches the `address` field exactly. This avoids deriving a filesystem path from untrusted command-line input.
 
-Example `/etc/mailu-ops/migrations.d/zymberi-bau-info.json`:
+Example `/etc/mailuops/migrations.d/zymberi-bau-info.json`:
 
 ```json
 {
@@ -267,12 +267,12 @@ Example `/etc/mailu-ops/migrations.d/zymberi-bau-info.json`:
     "host": "imap.old-provider.example",
     "port": 993,
     "username": "info@zymberi-bau.de",
-    "password_file": "/etc/mailu-ops/secrets/zymberi-bau-info.source.pass",
+    "password_file": "/etc/mailuops/secrets/zymberi-bau-info.source.pass",
     "ca_file": "/etc/ssl/certs/ca-certificates.crt"
   },
   "destination": {
     "username": "info@zymberi-bau.de",
-    "password_file": "/etc/mailu-ops/secrets/zymberi-bau-info.destination.pass"
+    "password_file": "/etc/mailuops/secrets/zymberi-bau-info.destination.pass"
   },
   "folders": {
     "automap": true,
@@ -293,8 +293,8 @@ Example `/etc/mailu-ops/migrations.d/zymberi-bau-info.json`:
 Protect every profile:
 
 ```bash
-sudo chown root:root /etc/mailu-ops/migrations.d/*.json
-sudo chmod 0600 /etc/mailu-ops/migrations.d/*.json
+sudo chown root:root /etc/mailuops/migrations.d/*.json
+sudo chmod 0600 /etc/mailuops/migrations.d/*.json
 ```
 
 ### Profile fields
@@ -350,21 +350,21 @@ Unknown JSON keys are rejected. A misspelled safety-relevant setting must not be
 Create the source and destination passfiles without placing passwords in shell history:
 
 ```bash
-sudo sh -c 'umask 077; read -r -s -p "Source IMAP password: " p; printf "\n"; printf "%s\n" "$p" > /etc/mailu-ops/secrets/zymberi-bau-info.source.pass'
+sudo sh -c 'umask 077; read -r -s -p "Source IMAP password: " p; printf "\n"; printf "%s\n" "$p" > /etc/mailuops/secrets/zymberi-bau-info.source.pass'
 
-sudo sh -c 'umask 077; read -r -s -p "Mailu migration password: " p; printf "\n"; printf "%s\n" "$p" > /etc/mailu-ops/secrets/zymberi-bau-info.destination.pass'
+sudo sh -c 'umask 077; read -r -s -p "Mailu migration password: " p; printf "\n"; printf "%s\n" "$p" > /etc/mailuops/secrets/zymberi-bau-info.destination.pass'
 ```
 
 Then enforce ownership and mode:
 
 ```bash
 sudo chown root:root \
-  /etc/mailu-ops/secrets/zymberi-bau-info.source.pass \
-  /etc/mailu-ops/secrets/zymberi-bau-info.destination.pass
+  /etc/mailuops/secrets/zymberi-bau-info.source.pass \
+  /etc/mailuops/secrets/zymberi-bau-info.destination.pass
 
 sudo chmod 0600 \
-  /etc/mailu-ops/secrets/zymberi-bau-info.source.pass \
-  /etc/mailu-ops/secrets/zymberi-bau-info.destination.pass
+  /etc/mailuops/secrets/zymberi-bau-info.source.pass \
+  /etc/mailuops/secrets/zymberi-bau-info.destination.pass
 ```
 
 Each passfile contains the password on its first line. The utility rejects:
@@ -384,7 +384,7 @@ Use a temporary Mailu password for migration where operationally possible. Rotat
 ### Show one mailbox
 
 ```bash
-sudo mailu-ops quota get info@zymberi-bau.de
+sudo mailuops quota get info@zymberi-bau.de
 ```
 
 Example output:
@@ -404,7 +404,7 @@ docker exec mailu-imap-1 \
   doveadm -f json quota get -u info@zymberi-bau.de
 ```
 
-Dovecot reports storage values in kilobytes. `mailu-ops` treats those values as 1024-byte KiB, converts them to IEC display units, and calculates a non-rounded percentage from the reported values.
+Dovecot reports storage values in kilobytes. `mailuops` treats those values as 1024-byte KiB, converts them to IEC display units, and calculates a non-rounded percentage from the reported values.
 
 For an unlimited quota:
 
@@ -419,7 +419,7 @@ Messages:       182340
 ### Show all mailboxes
 
 ```bash
-sudo mailu-ops quota list
+sudo mailuops quota list
 ```
 
 Example output:
@@ -445,8 +445,8 @@ Rows are sorted by mailbox address for deterministic output. The command fails i
 Add `--json`:
 
 ```bash
-sudo mailu-ops quota get info@zymberi-bau.de --json
-sudo mailu-ops quota list --json
+sudo mailuops quota get info@zymberi-bau.de --json
+sudo mailuops quota list --json
 ```
 
 Single-mailbox schema:
@@ -479,7 +479,7 @@ The JSON percentage is a number in the range 0 through 100, not a fraction. A mi
 Run a probe before every initial migration and after every profile change:
 
 ```bash
-sudo mailu-ops migrate probe info@zymberi-bau.de
+sudo mailuops migrate probe info@zymberi-bau.de
 ```
 
 The probe performs these checks in order:
@@ -505,7 +505,7 @@ Source:      info@zymberi-bau.de @ imap.old-provider.example:993 (verified IMAPS
 Destination: info@zymberi-bau.de @ mail.example.net:993 (verified IMAPS)
 Mailu quota: 1.08 MiB used of 1.40 GiB
 Login test:  passed
-Folder plan: passed; see /var/log/mailu-ops/20260721T143210Z-info_zymberi-bau.de-a83f91dcb204/
+Folder plan: passed; see /var/log/mailuops/20260721T143210Z-info_zymberi-bau.de-a83f91dcb204/
 Result:      safe to run an additive migration
 ```
 
@@ -516,7 +516,7 @@ Inspect the folder plan in the terminal and log. Pay particular attention to Sen
 Interactive run:
 
 ```bash
-sudo mailu-ops migrate run info@zymberi-bau.de
+sudo mailuops migrate run info@zymberi-bau.de
 ```
 
 After validation, login testing, and the dry folder plan, the tool prints a redacted operation summary and requires an exact confirmation:
@@ -531,7 +531,7 @@ Type the destination mailbox exactly to continue: info@zymberi-bau.de
 For controlled automation:
 
 ```bash
-sudo mailu-ops migrate run info@zymberi-bau.de --yes
+sudo mailuops migrate run info@zymberi-bau.de --yes
 ```
 
 `--yes` suppresses only the exact-address prompt. It does not skip the lock, file checks, TLS checks, mailbox check, quota check, login test, or dry folder plan. A noninteractive invocation without `--yes` fails.
@@ -574,19 +574,19 @@ For each mailbox:
 5. Confirm destination capacity:
 
    ```bash
-   sudo mailu-ops quota get info@example.com
+   sudo mailuops quota get info@example.com
    ```
 
 6. Probe credentials and mappings:
 
    ```bash
-   sudo mailu-ops migrate probe info@example.com
+   sudo mailuops migrate probe info@example.com
    ```
 
 7. Perform the initial copy while the source mailbox is still live:
 
    ```bash
-   sudo mailu-ops migrate run info@example.com
+   sudo mailuops migrate run info@example.com
    ```
 
 8. Verify folders, messages, dates, attachments, read/unread state, and sent mail in Mailu.
@@ -595,7 +595,7 @@ For each mailbox:
 11. Rerun the same migration command to copy mail that arrived at the old provider during the transition:
 
     ```bash
-    sudo mailu-ops migrate run info@example.com
+    sudo mailuops migrate run info@example.com
     ```
 
 12. Perform a final catch-up run after the old provider has stopped receiving new mail.
@@ -609,7 +609,7 @@ Do not cancel the old provider immediately after changing MX records. Cached DNS
 Each probe or run creates a private operation directory under `migration.log_dir`:
 
 ```text
-/var/log/mailu-ops/
+/var/log/mailuops/
 └── 20260721T143210Z-info_zymberi-bau.de-a83f91dcb204/
     ├── wrapper.log
     ├── 01-login.imapsync.log
@@ -744,7 +744,7 @@ For Mailu, verify the temporary destination password by logging in through a nor
 Do not run the migration. Update `folders.map`, then repeat:
 
 ```bash
-sudo mailu-ops migrate probe info@example.com
+sudo mailuops migrate probe info@example.com
 ```
 
 Use explicit mappings only after observing the dry plan. Provider folder names are case-sensitive and can contain hierarchy separators.
@@ -754,7 +754,7 @@ Use explicit mappings only after observing the dry plan. Provider folder names a
 Increase the Mailu mailbox quota or remove unrelated destination data using a separately reviewed procedure. Then verify:
 
 ```bash
-sudo mailu-ops quota get info@example.com
+sudo mailuops quota get info@example.com
 ```
 
 Rerun the same migration after capacity is available. Incremental behavior normally avoids retransferring messages already copied successfully.
@@ -801,7 +801,7 @@ These omissions keep the utility's operational scope narrow and auditable. A fut
 
 Mailu's administration CLI manages configuration objects such as domains, users, passwords, aliases, and imports. Mailbox usage is runtime state maintained by Dovecot. Dovecot provides native quota queries for one user and all users, plus structured JSON output.
 
-Mailu also has a REST API, but enabling and authenticating an HTTP API solely for local quota inspection adds unnecessary exposure and configuration. `mailu-ops` therefore queries Dovecot inside the already running Mailu IMAP container.
+Mailu also has a REST API, but enabling and authenticating an HTTP API solely for local quota inspection adds unnecessary exposure and configuration. `mailuops` therefore queries Dovecot inside the already running Mailu IMAP container.
 
 ## Reference documentation
 
