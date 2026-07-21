@@ -3,6 +3,9 @@ set -Eeuo pipefail
 umask 077
 export LC_ALL=C
 
+# shellcheck source=tests/integration/common.sh
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/common.sh"
+
 missing=0
 require_cmd() {
 	local cmd=$1
@@ -56,6 +59,18 @@ docker ps -a \
 	awk '$1 ~ /^mailuops-it-/ { print }' || true
 
 docker network ls --format '{{.Name}}' | awk '/^mailuops-it-/ { print }' || true
+
+printf '\nReal integration destructive guard:\n'
+token=$(integration_guard_token)
+guard_file=$(integration_guard_file)
+printf 'required env:  MAILUOPS_REAL_MAILU=1\n'
+printf 'required env:  MAILUOPS_DISPOSABLE_MAILU_STACK_OK=%s\n' "$token"
+printf 'required file: %s\n' "$guard_file"
+if [[ -f $guard_file ]] && IFS= read -r guard_value <"$guard_file" && [[ $guard_value == "$token" ]]; then
+	printf 'guard file:   armed\n'
+else
+	printf 'guard file:   not armed (safe default)\n'
+fi
 
 printf '\nRepository checks:\n'
 bash -n mailuops

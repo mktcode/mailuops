@@ -13,9 +13,33 @@ state_file() {
 	printf '%s/.state.env\n' "$(integration_dir)"
 }
 
+integration_guard_token() {
+	printf '%s\n' 'I_UNDERSTAND_THIS_STARTS_AND_REMOVES_A_DISPOSABLE_MAILU_STACK'
+}
+
+integration_guard_file() {
+	printf '%s/.config/mailuops/allow-real-mailu-integration\n' "$HOME"
+}
+
 require_real_opt_in() {
+	local token guard_file guard_value
+	token=$(integration_guard_token)
+	guard_file=$(integration_guard_file)
 	if [[ ${MAILUOPS_REAL_MAILU:-} != 1 ]]; then
 		printf 'Refusing real Mailu integration without MAILUOPS_REAL_MAILU=1.\n' >&2
+		exit 1
+	fi
+	if [[ ${MAILUOPS_DISPOSABLE_MAILU_STACK_OK:-} != "$token" ]]; then
+		printf 'Refusing real Mailu integration without MAILUOPS_DISPOSABLE_MAILU_STACK_OK=%s.\n' "$token" >&2
+		exit 1
+	fi
+	if [[ ! -f $guard_file ]]; then
+		printf 'Refusing real Mailu integration without host guard file: %s\n' "$guard_file" >&2
+		exit 1
+	fi
+	IFS= read -r guard_value <"$guard_file" || guard_value=""
+	if [[ $guard_value != "$token" ]]; then
+		printf 'Refusing real Mailu integration because host guard file has unexpected content: %s\n' "$guard_file" >&2
 		exit 1
 	fi
 }

@@ -10,13 +10,13 @@ integration-preflight:
 	tests/integration/preflight.sh
 
 integration-up:
-	MAILUOPS_REAL_MAILU=1 tests/integration/up.sh
+	tests/integration/up.sh
 
 integration-test:
-	MAILUOPS_REAL_MAILU=1 tests/integration/test.sh
+	tests/integration/test.sh
 
 integration-down:
-	MAILUOPS_REAL_MAILU=1 tests/integration/down.sh
+	tests/integration/down.sh
 
 integration:
 	@if [ "$${MAILUOPS_REAL_MAILU:-}" != 1 ]; then \
@@ -25,6 +25,6 @@ integration:
 		exit 1; \
 	fi
 	@set -eu; \
-	trap 'MAILUOPS_REAL_MAILU=1 tests/integration/down.sh' EXIT INT TERM; \
-	MAILUOPS_REAL_MAILU=1 tests/integration/up.sh; \
-	MAILUOPS_REAL_MAILU=1 tests/integration/test.sh
+	trap 'tests/integration/down.sh' EXIT INT TERM; \
+	tests/integration/up.sh; \
+	tests/integration/test.sh

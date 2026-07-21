@@ -19,6 +19,19 @@ make integration-preflight
 
 It checks tools, Docker access, port 993, stale `mailuops-it-*` Docker resources, and the stubbed test suite. It does not pull images, start containers, remove containers, or modify host files.
 
+To arm a development machine for the real test, create the per-host guard file and pass both environment variables:
+
+```bash
+mkdir -p "$HOME/.config/mailuops"
+chmod 700 "$HOME/.config/mailuops"
+printf '%s\n' 'I_UNDERSTAND_THIS_STARTS_AND_REMOVES_A_DISPOSABLE_MAILU_STACK' > "$HOME/.config/mailuops/allow-real-mailu-integration"
+chmod 600 "$HOME/.config/mailuops/allow-real-mailu-integration"
+
+MAILUOPS_REAL_MAILU=1 \
+MAILUOPS_DISPOSABLE_MAILU_STACK_OK='I_UNDERSTAND_THIS_STARTS_AND_REMOVES_A_DISPOSABLE_MAILU_STACK' \
+make integration
+```
+
 ## What the Mailu 2024.06 docs confirm
 
 Checked against the Mailu 2024.06 documentation:
@@ -43,12 +56,12 @@ References:
 
 ## Safety policy for this development machine
 
-I should **not** run a real Mailu stack on your machine unless you explicitly say so in the same turn.
+I should **not** run a real Mailu stack on your machine unless you explicitly say so in the same turn. The scripts also require two explicit environment variables and a per-host guard file so a pasted command is not enough to start or remove Docker resources on an unarmed host.
 
 The concrete concerns are:
 
 - **Port binding:** Mailu normally exposes many mail/web ports. The integration scripts patch and validate the generated Compose file so only `127.0.0.1:993:993` remains published.
-- **Existing Docker resources:** unrelated containers may exist. Every command uses an explicit Compose project name beginning with `mailuops-it-`; no Docker prune or broad cleanup command is allowed.
+- **Existing Docker resources:** unrelated containers may exist. Every command uses an explicit Compose project name beginning with `mailuops-it-`; no Docker prune or broad cleanup command is allowed. Real start/test/down scripts require a destructive-action guard: `MAILUOPS_REAL_MAILU=1`, `MAILUOPS_DISPOSABLE_MAILU_STACK_OK`, and `$HOME/.config/mailuops/allow-real-mailu-integration` with the exact guard phrase.
 - **Image size and runtime cost:** Mailu pulls several images and starts multiple containers. This is why real-stack tests are opt-in only and not part of `make test`.
 - **Mail-server side effects:** the stack must not use Let's Encrypt, public SMTP bindings, production DNS, production domains, or production credentials.
 - **Host modifications:** do not edit `/etc/hosts`, firewall rules, system trust stores, Docker daemon settings, or systemd units. The test uses `localhost` and a per-test CA file instead.
@@ -399,10 +412,12 @@ tests/integration/down.sh
 
 The stack-management scripts require explicit opt-in and record their generated project/root in `tests/integration/.state.env`, which is ignored by Git.
 
-They should require an explicit environment opt-in:
+They should require explicit environment opt-ins and the matching host guard file:
 
 ```bash
-MAILUOPS_REAL_MAILU=1 tests/integration/test.sh
+MAILUOPS_REAL_MAILU=1 \
+MAILUOPS_DISPOSABLE_MAILU_STACK_OK='I_UNDERSTAND_THIS_STARTS_AND_REMOVES_A_DISPOSABLE_MAILU_STACK' \
+tests/integration/test.sh
 ```
 
-Without that variable, the scripts must refuse to pull images, start containers, bind ports, or remove Docker resources.
+Without the two environment variables and matching host guard file, the scripts must refuse to pull images, start containers, bind ports, or remove Docker resources.

@@ -28,8 +28,12 @@ Expected:
 
 Run only after reading `TESTING.md` and confirming the disposable Docker stack is acceptable on the machine:
 
+The host must also be explicitly armed with `$HOME/.config/mailuops/allow-real-mailu-integration` containing `I_UNDERSTAND_THIS_STARTS_AND_REMOVES_A_DISPOSABLE_MAILU_STACK`. Do not create that guard file on a production Mailu host unless you intentionally allow disposable integration testing there.
+
 ```bash
-MAILUOPS_REAL_MAILU=1 make integration
+MAILUOPS_REAL_MAILU=1 \
+MAILUOPS_DISPOSABLE_MAILU_STACK_OK='I_UNDERSTAND_THIS_STARTS_AND_REMOVES_A_DISPOSABLE_MAILU_STACK' \
+make integration
 ```
 
 Expected:

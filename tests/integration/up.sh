@@ -14,7 +14,7 @@ done
 STATE=$(state_file)
 if [[ -e $STATE ]]; then
 	printf 'state file already exists: %s\n' "$STATE" >&2
-	printf 'Run MAILUOPS_REAL_MAILU=1 tests/integration/down.sh first, or inspect/remove the state file manually.\n' >&2
+	printf 'Run the guarded integration-down target first, or inspect/remove the state file manually.\n' >&2
 	exit 1
 fi
 
