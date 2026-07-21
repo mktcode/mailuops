@@ -997,7 +997,7 @@ check_imapsync_capabilities() {
 		--tmpdir --pidfile --pidfilelocking --logfile --noreleasecheck --automap --f1f2
 	)
 	local opt tokens
-	tokens=$(printf '%s\n' "$combined" | tr '[:space:],;()[]{}' '\n' | grep '^--' || true)
+	tokens=$(printf '%s\n' "$combined" | tr '[:space:],;:()[]{}' '\n' | grep '^--' || true)
 	for opt in "${required[@]}"; do
 		if ! grep -Fx -- "$opt" <<<"$tokens" >/dev/null; then
 			fatal 69 "imapsync executable $IMAPSYNC_BINARY does not advertise required option $opt"

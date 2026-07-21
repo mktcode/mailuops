@@ -9,7 +9,7 @@ if [[ ${1:-} == --help ]]; then
 	printf '%s\n' \
 		--host1 --host2 --port1 --port2 --user1 --user2 --passfile1 --passfile2 \
 		--ssl1 --ssl2 --sslargs1 --sslargs2 --timeout1 --timeout2 --justlogin \
-		--dry --justfolders --nofoldersizes --nofoldersizesatend --subscribe \
+		--dry --justfolders --nofoldersizes --nofoldersizesatend: --subscribe \
 		--resyncflags --syncinternaldates --noexpunge1 --noexpunge2 --nouidexpunge2 \
 		--tmpdir --pidfile --pidfilelocking --logfile --noreleasecheck --automap --f1f2
 	exit 0
