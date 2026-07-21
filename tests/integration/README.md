@@ -15,8 +15,8 @@ Create the per-host guard file once on a machine where this disposable test is a
 ```bash
 mkdir -p "$HOME/.config/mailuops"
 chmod 700 "$HOME/.config/mailuops"
-printf '%s\n' 'I_UNDERSTAND_THIS_STARTS_AND_REMOVES_A_DISPOSABLE_MAILU_STACK' > "$HOME/.config/mailuops/allow-real-mailu-integration"
-chmod 600 "$HOME/.config/mailuops/allow-real-mailu-integration"
+printf '%s\n' 'I_UNDERSTAND_THIS_STARTS_AND_REMOVES_A_DISPOSABLE_MAILU_STACK' > "$HOME/.config/mailuops/allow-destructive-mailu-integration-tests"
+chmod 600 "$HOME/.config/mailuops/allow-destructive-mailu-integration-tests"
 ```
 
 Then run with both explicit environment variables:

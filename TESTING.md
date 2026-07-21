@@ -24,8 +24,8 @@ To arm a development machine for the real test, create the per-host guard file a
 ```bash
 mkdir -p "$HOME/.config/mailuops"
 chmod 700 "$HOME/.config/mailuops"
-printf '%s\n' 'I_UNDERSTAND_THIS_STARTS_AND_REMOVES_A_DISPOSABLE_MAILU_STACK' > "$HOME/.config/mailuops/allow-real-mailu-integration"
-chmod 600 "$HOME/.config/mailuops/allow-real-mailu-integration"
+printf '%s\n' 'I_UNDERSTAND_THIS_STARTS_AND_REMOVES_A_DISPOSABLE_MAILU_STACK' > "$HOME/.config/mailuops/allow-destructive-mailu-integration-tests"
+chmod 600 "$HOME/.config/mailuops/allow-destructive-mailu-integration-tests"
 
 MAILUOPS_REAL_MAILU=1 \
 MAILUOPS_DISPOSABLE_MAILU_STACK_OK='I_UNDERSTAND_THIS_STARTS_AND_REMOVES_A_DISPOSABLE_MAILU_STACK' \
@@ -61,7 +61,7 @@ I should **not** run a real Mailu stack on your machine unless you explicitly sa
 The concrete concerns are:
 
 - **Port binding:** Mailu normally exposes many mail/web ports. The integration scripts patch and validate the generated Compose file so only `127.0.0.1:993:993` remains published.
-- **Existing Docker resources:** unrelated containers may exist. Every command uses an explicit Compose project name beginning with `mailuops-it-`; no Docker prune or broad cleanup command is allowed. Real start/test/down scripts require a destructive-action guard: `MAILUOPS_REAL_MAILU=1`, `MAILUOPS_DISPOSABLE_MAILU_STACK_OK`, and `$HOME/.config/mailuops/allow-real-mailu-integration` with the exact guard phrase.
+- **Existing Docker resources:** unrelated containers may exist. Every command uses an explicit Compose project name beginning with `mailuops-it-`; no Docker prune or broad cleanup command is allowed. Real start/test/down scripts require a destructive-action guard: `MAILUOPS_REAL_MAILU=1`, `MAILUOPS_DISPOSABLE_MAILU_STACK_OK`, and `$HOME/.config/mailuops/allow-destructive-mailu-integration-tests` with the exact guard phrase.
 - **Image size and runtime cost:** Mailu pulls several images and starts multiple containers. This is why real-stack tests are opt-in only and not part of `make test`.
 - **Mail-server side effects:** the stack must not use Let's Encrypt, public SMTP bindings, production DNS, production domains, or production credentials.
 - **Host modifications:** do not edit `/etc/hosts`, firewall rules, system trust stores, Docker daemon settings, or systemd units. The test uses `localhost` and a per-test CA file instead.

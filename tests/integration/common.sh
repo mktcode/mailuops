@@ -18,7 +18,7 @@ integration_guard_token() {
 }
 
 integration_guard_file() {
-	printf '%s/.config/mailuops/allow-real-mailu-integration\n' "$HOME"
+	printf '%s/.config/mailuops/allow-destructive-mailu-integration-tests\n' "$HOME"
 }
 
 require_real_opt_in() {
