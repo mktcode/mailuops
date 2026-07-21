@@ -597,11 +597,8 @@ resolve_mailu_container() {
 }
 
 check_doveadm() {
-	local help_output status
-	set +e
-	help_output=$(docker exec -- "$MAILU_CONTAINER_NAME" doveadm 2>&1)
-	status=$?
-	set -e
+	local help_output status=0
+	help_output=$(docker exec -- "$MAILU_CONTAINER_NAME" doveadm 2>&1) || status=$?
 	if [[ $status -eq 127 || -z $help_output ]]; then
 		fatal 69 "doveadm is not available in container $MAILU_CONTAINER_NAME"
 	fi
