@@ -47,14 +47,21 @@ printf 'PROJECT=%q\nTEST_ROOT=%q\nMAILU_DIR=%q\nOPS_DIR=%q\nREPO=%q\n' \
 printf 'Created integration root:\n  PROJECT=%s\n  TEST_ROOT=%s\n' "$PROJECT" "$TEST_ROOT"
 
 cd "$TEST_ROOT/pki"
+cat >ca.ext <<'CA_EXT'
+basicConstraints = critical, CA:TRUE
+keyUsage = critical, keyCertSign, cRLSign
+subjectKeyIdentifier = hash
+CA_EXT
 openssl req -x509 -newkey rsa:3072 -nodes -sha256 -days 30 \
 	-subj '/CN=mailuops integration CA' \
+	-addext 'basicConstraints = critical, CA:TRUE' \
+	-addext 'keyUsage = critical, keyCertSign, cRLSign' \
 	-keyout ca.key -out ca.crt >/dev/null 2>&1
 openssl req -newkey rsa:2048 -nodes -sha256 \
 	-subj '/CN=localhost' \
 	-keyout localhost.key -out localhost.csr >/dev/null 2>&1
 cat >localhost.ext <<'CERT_EXT'
-basicConstraints = CA:FALSE
+basicConstraints = critical, CA:FALSE
 keyUsage = critical, digitalSignature, keyEncipherment
 extendedKeyUsage = serverAuth
 subjectAltName = DNS:localhost,DNS:mailu.local
@@ -182,11 +189,20 @@ done
 
 docker compose -p "$PROJECT" ps
 
+printf 'Waiting for Mailu admin database migrations...\n'
+for _ in {1..90}; do
+	if docker compose -p "$PROJECT" exec -T admin flask mailu config-export domain.name >/dev/null 2>&1; then
+		break
+	fi
+	sleep 2
+done
+docker compose -p "$PROJECT" exec -T admin flask mailu config-export domain.name >/dev/null
+
 printf 'Creating Mailu test users...\n'
-docker compose -p "$PROJECT" exec -T admin flask mailu domain example.test || true
-docker compose -p "$PROJECT" exec -T admin flask mailu admin admin example.test 'Admin-Test-Only-1!' || true
-docker compose -p "$PROJECT" exec -T admin flask mailu user source example.test 'Source-Test-Only-1!' || true
-docker compose -p "$PROJECT" exec -T admin flask mailu user target example.test 'Target-Test-Only-1!' || true
+docker compose -p "$PROJECT" exec -T admin flask mailu domain example.test
+docker compose -p "$PROJECT" exec -T admin flask mailu admin admin example.test 'Admin-Test-Only-1!'
+docker compose -p "$PROJECT" exec -T admin flask mailu user source example.test 'Source-Test-Only-1!'
+docker compose -p "$PROJECT" exec -T admin flask mailu user target example.test 'Target-Test-Only-1!'
 
 IMAP_ID=$(docker compose -p "$PROJECT" ps -q imap)
 IMAP_CONTAINER=$(docker inspect --format '{{.Name}}' "$IMAP_ID")

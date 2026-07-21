@@ -54,6 +54,9 @@ The concrete concerns are:
 - **Host modifications:** do not edit `/etc/hosts`, firewall rules, system trust stores, Docker daemon settings, or systemd units. The test uses `localhost` and a per-test CA file instead.
 - **Cleanup correctness:** cleanup must target exactly the recorded `PROJECT` and `TEST_ROOT`. Root-owned bind-mounted files may require Docker-assisted cleanup, but only with `$TEST_ROOT` mounted.
 - **Generated config drift:** because Compose files come from the Mailu setup utility, scripts must validate the dangerous parts, especially published ports, before `docker compose up`.
+- **Compose naming rules:** Docker Compose project names must be lowercase; timestamps in project names use lowercase `t`/`z`.
+- **Startup readiness:** containers can be running before Mailu's admin database migrations are complete. The integration script must wait for a successful admin CLI command before creating domains/users.
+- **Local PKI correctness:** Python/OpenSSL verification on this machine rejects CA certificates without CA key-usage extensions, so the generated test CA includes critical CA basic constraints and keyCertSign/cRLSign usage.
 
 When we do run it, use these guardrails:
 
