@@ -25,7 +25,7 @@ if ! port_993_free; then
 fi
 
 REPO=$(repo_root)
-PROJECT="mailuops-it-${USER:-user}-$(date -u +%Y%m%dT%H%M%SZ)"
+PROJECT="mailuops-it-${USER:-user}-$(date -u +%Y%m%dt%H%M%Sz)"
 TEST_ROOT=$(mktemp -d "$HOME/.cache/mailuops-it.XXXXXX")
 touch "$TEST_ROOT/.mailuops-integration-root"
 

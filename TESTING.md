@@ -57,7 +57,7 @@ The concrete concerns are:
 
 When we do run it, use these guardrails:
 
-1. Use a unique Compose project name, for example `mailuops-it-$USER-$(date -u +%Y%m%dT%H%M%SZ)`.
+1. Use a unique lowercase Compose project name, for example `mailuops-it-$USER-$(date -u +%Y%m%dt%H%M%Sz)`. Docker Compose rejects uppercase characters in project names.
 2. Put every bind mount under one disposable root, for example `$HOME/.cache/mailuops-it.XXXXXX`.
 3. Do not touch `/etc/hosts`.
 4. Do not use production domains, production passwords, production certificates, or production Mailu directories.
