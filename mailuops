@@ -834,7 +834,7 @@ find_profile() {
 		fatal 77 "migration profiles directory $PROFILES_DIR is group- or world-writable"
 	fi
 	local files=()
-	mapfile -d '' files < <(find -P "$PROFILES_DIR" -maxdepth 1 -type f -name '*.json' -print0 | sort -z)
+	mapfile -d '' files < <(find -P "$PROFILES_DIR" -maxdepth 1 -name '*.json' -print0 | sort -z)
 	local matches=()
 	local file profile_address
 	for file in "${files[@]}"; do

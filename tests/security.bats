@@ -47,3 +47,10 @@ teardown() { teardown_mailuops_env; }
 	! grep -En '(^|[;&|[:space:]])(eval|source)([[:space:]]|$)|bash[[:space:]]+-c|sh[[:space:]]+-c' "$exe"
 	! grep -En -- '(^|[^A-Za-z0-9-])--(delete1|delete2|expunge1|expunge2|uidexpunge2)([^A-Za-z0-9-]|$)' "$exe"
 }
+
+@test "profile symlink is rejected during scanning" {
+	rm "$TEST_ROOT/profiles/profile.json"
+	ln -s "$TEST_ROOT/config.json" "$TEST_ROOT/profiles/profile.json"
+	run mailuops_cmd migrate probe info@example.com
+	assert_failure_status 77
+}
