@@ -35,3 +35,30 @@ teardown() { teardown_mailuops_env; }
 	assert_failure_status 64
 	[ "$(grep -Fc -- 'imapsync' "$MAILUOPS_STUB_DIR/imapsync.argv")" -eq 2 ]
 }
+
+@test "representative imapsync login failure statuses are preserved" {
+	for code in 1 12 64 101 102 113 161 162 255; do
+		teardown_mailuops_env
+		setup_mailuops_env
+		export IMAPSYNC_STATUS_LOGIN="$code"
+		run mailuops_cmd migrate probe info@example.com
+		assert_failure_status "$code"
+		unset IMAPSYNC_STATUS_LOGIN
+	done
+}
+
+@test "second concurrent migration operation fails with 75" {
+	export IMAPSYNC_SLEEP=3
+	"$BATS_TEST_DIRNAME/../mailuops" --config "$TEST_ROOT/config.json" migrate probe info@example.com >"$TEST_ROOT/first.out" 2>"$TEST_ROOT/first.err" &
+	first_pid=$!
+	for _ in {1..30}; do
+		if [[ -s "$TEST_ROOT/run/migrate.lock" ]]; then
+			break
+		fi
+		sleep 0.1
+	done
+	run mailuops_cmd migrate probe info@example.com
+	assert_failure_status 75
+	kill "$first_pid" 2>/dev/null || true
+	wait "$first_pid" 2>/dev/null || true
+}

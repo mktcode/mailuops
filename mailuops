@@ -1193,7 +1193,7 @@ confirm_exact_address() {
 	if ! IFS= read -r answer; then
 		fatal 64 "confirmation aborted before reading the destination mailbox"
 	fi
-	[[ $answer == "$DST_USERNAME" ]] || fatal 64 "confirmation mismatch; real migration was not started"
+	[[ $answer == "$ADDRESS" ]] || fatal 64 "confirmation mismatch; real migration was not started"
 }
 
 migration_run() {
