@@ -58,6 +58,7 @@ The concrete concerns are:
 - **Startup readiness:** containers can be running before Mailu's admin database migrations are complete. The integration script must wait for a successful admin CLI command before creating domains/users.
 - **Admin exec user:** `docker compose exec admin ...` can create root-owned SQLite files if run as root before migrations complete. Integration admin CLI calls use `--user mailu`.
 - **Local PKI correctness:** Python/OpenSSL verification on this machine rejects CA certificates without CA key-usage extensions, so the generated test CA includes critical CA basic constraints and keyCertSign/cRLSign usage.
+- **imapsync side logs:** imapsync can create a `LOG_imapsync` directory relative to the current working directory even when `--logfile` is set, so the integration test changes to `$TEST_ROOT` before invoking `mailuops`.
 
 When we do run it, use these guardrails:
 

@@ -75,6 +75,7 @@ jq -n \
 chmod 0600 "$OPS_DIR/config.json" "$OPS_DIR/migrations.d/target.json"
 
 printf '%s\n' 'Checking real doveadm quota through mailuops...'
+cd "$TEST_ROOT"
 "$REPO/mailuops" --config "$OPS_DIR/config.json" quota get source@example.test
 "$REPO/mailuops" --config "$OPS_DIR/config.json" quota list --json | jq -e '.[] | select(.mailbox == "source@example.test")' >/dev/null
 
