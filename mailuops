@@ -311,7 +311,6 @@ require_migration_dependencies() {
 	require_command sha256sum
 	require_command date
 	require_command mktemp
-	require_command mkfifo
 	require_command flock
 }
 
@@ -1097,19 +1096,22 @@ run_imapsync_phase() {
 	chmod 0600 -- "$console_log"
 	log_wrapper "phase $phase start: $(redacted_command_line IMAPSYNC_CMD)"
 	printf '== %s ==\n' "$*"
-	local status fifo tee_pid
-	fifo="$OP_RUNTIME_DIR/$phase.output.pipe"
-	mkfifo -m 0600 -- "$fifo" || fatal 73 "cannot create phase output pipe: $fifo"
-	tee -- "$console_log" <"$fifo" &
-	tee_pid=$!
+	local status tee_pid tee_in tee_in_orig tee_out_orig
+	coproc TEE_PROC { tee -- "$console_log"; }
+	tee_pid=$TEE_PROC_PID
+	tee_in_orig=${TEE_PROC[1]}
+	tee_out_orig=${TEE_PROC[0]}
+	exec {tee_in}>&"$tee_in_orig"
+	exec {tee_in_orig}>&-
 	set +e
-	"${IMAPSYNC_CMD[@]}" >"$fifo" 2>&1 &
+	"${IMAPSYNC_CMD[@]}" >&"$tee_in" 2>&1 &
 	ACTIVE_CHILD=$!
 	wait "$ACTIVE_CHILD"
 	status=$?
 	ACTIVE_CHILD=""
+	exec {tee_in}>&-
 	wait "$tee_pid"
-	rm -f -- "$fifo"
+	exec {tee_out_orig}<&-
 	set -e
 	log_wrapper "phase $phase status: $status"
 	return "$status"
