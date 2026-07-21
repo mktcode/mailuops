@@ -2,70 +2,79 @@
 set -Eeuo pipefail
 : "${MAILUOPS_STUB_DIR:?}"
 {
-  printf 'docker'
-  for arg in "$@"; do printf '\t%q' "$arg"; done
-  printf '\n'
+	printf 'docker'
+	for arg in "$@"; do printf '\t%q' "$arg"; done
+	printf '\n'
 } >>"$MAILUOPS_STUB_DIR/docker.argv"
 
 quota_single() {
-  if [[ -n ${DOCKER_QUOTA_SINGLE_FILE:-} ]]; then
-    cat -- "$DOCKER_QUOTA_SINGLE_FILE"
-  else
-    cat <<'JSON'
+	if [[ -n ${DOCKER_QUOTA_SINGLE_FILE:-} ]]; then
+		cat -- "$DOCKER_QUOTA_SINGLE_FILE"
+	else
+		cat <<'JSON'
 [
   {"username":"info@example.com","quota_name":"User quota","quota_type":"STORAGE","value":"1110","limit":"1464844","percent":"0"},
   {"username":"info@example.com","quota_name":"User quota","quota_type":"MESSAGE","value":"24","limit":"-","percent":"0"}
 ]
 JSON
-  fi
+	fi
 }
 
 quota_all() {
-  if [[ -n ${DOCKER_QUOTA_ALL_FILE:-} ]]; then
-    cat -- "$DOCKER_QUOTA_ALL_FILE"
-  else
-    cat <<'JSON'
+	if [[ -n ${DOCKER_QUOTA_ALL_FILE:-} ]]; then
+		cat -- "$DOCKER_QUOTA_ALL_FILE"
+	else
+		cat <<'JSON'
 [
   {"username":"z@example.com","quota_name":"User quota","quota_type":"STORAGE","value":"0","limit":"1048576","percent":"0"},
   {"username":"info@example.com","quota_name":"User quota","quota_type":"STORAGE","value":"1110","limit":"1464844","percent":"0"},
   {"username":"info@example.com","quota_name":"User quota","quota_type":"MESSAGE","value":"24","limit":"-","percent":"0"}
 ]
 JSON
-  fi
+	fi
 }
 
 case ${1:-} in
-  inspect)
-    case ${DOCKER_INSPECT_MODE:-running} in
-      missing) exit 1 ;;
-      stopped) printf 'cid123\t/mailu-imap-1\tfalse\n' ;;
-      running) printf 'cid123\t/mailu-imap-1\ttrue\n' ;;
-    esac
-    ;;
-  ps)
-    case ${DOCKER_PS_MODE:-none} in
-      none) exit 0 ;;
-      one) printf 'cid123\tmailu-imap-1\tghcr.io/mailu/dovecot:2024.06\n' ;;
-      two) printf 'cid1\tmailu-a-imap-1\tghcr.io/mailu/dovecot:2024.06\n'; printf 'cid2\tmailu-b-imap-1\tghcr.io/mailu/dovecot:2024.06\n' ;;
-    esac
-    ;;
-  exec)
-    shift
-    [[ ${1:-} == -- ]] && shift
-    container=${1:-}
-    shift || true
-    case "${1:-} ${2:-} ${3:-} ${4:-} ${5:-}" in
-      'command -v doveadm  ') exit 0 ;;
-      'doveadm help quota  ') exit 0 ;;
-      doveadm\ user*)
-        [[ ${DOCKER_USER_FAIL:-0} == 1 ]] && exit 67
-        exit 0
-        ;;
-      'doveadm -f json quota get')
-        if [[ ${6:-} == -A ]]; then quota_all; else quota_single; fi
-        ;;
-      *) printf 'unexpected docker exec in stub: %q %q %q %q %q\n' "$container" "${1:-}" "${2:-}" "${3:-}" "${4:-}" >&2; exit 99 ;;
-    esac
-    ;;
-  *) printf 'unexpected docker invocation: %q\n' "$@" >&2; exit 99 ;;
+inspect)
+	case ${DOCKER_INSPECT_MODE:-running} in
+	missing) exit 1 ;;
+	stopped) printf 'cid123\t/mailu-imap-1\tfalse\n' ;;
+	running) printf 'cid123\t/mailu-imap-1\ttrue\n' ;;
+	esac
+	;;
+ps)
+	case ${DOCKER_PS_MODE:-none} in
+	none) exit 0 ;;
+	one) printf 'cid123\tmailu-imap-1\tghcr.io/mailu/dovecot:2024.06\n' ;;
+	two)
+		printf 'cid1\tmailu-a-imap-1\tghcr.io/mailu/dovecot:2024.06\n'
+		printf 'cid2\tmailu-b-imap-1\tghcr.io/mailu/dovecot:2024.06\n'
+		;;
+	esac
+	;;
+exec)
+	shift
+	[[ ${1:-} == -- ]] && shift
+	container=${1:-}
+	shift || true
+	case "${1:-} ${2:-} ${3:-} ${4:-} ${5:-}" in
+	'command -v doveadm  ') exit 0 ;;
+	'doveadm help quota  ') exit 0 ;;
+	doveadm\ user*)
+		[[ ${DOCKER_USER_FAIL:-0} == 1 ]] && exit 67
+		exit 0
+		;;
+	'doveadm -f json quota get')
+		if [[ ${6:-} == -A ]]; then quota_all; else quota_single; fi
+		;;
+	*)
+		printf 'unexpected docker exec in stub: %q %q %q %q %q\n' "$container" "${1:-}" "${2:-}" "${3:-}" "${4:-}" >&2
+		exit 99
+		;;
+	esac
+	;;
+*)
+	printf 'unexpected docker invocation: %q\n' "$@" >&2
+	exit 99
+	;;
 esac
