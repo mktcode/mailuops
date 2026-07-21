@@ -191,18 +191,18 @@ docker compose -p "$PROJECT" ps
 
 printf 'Waiting for Mailu admin database migrations...\n'
 for _ in {1..90}; do
-	if docker compose -p "$PROJECT" exec -T admin flask mailu config-export domain.name >/dev/null 2>&1; then
+	if docker compose -p "$PROJECT" exec -T --user mailu admin flask mailu config-export domain.name >/dev/null 2>&1; then
 		break
 	fi
 	sleep 2
 done
-docker compose -p "$PROJECT" exec -T admin flask mailu config-export domain.name >/dev/null
+docker compose -p "$PROJECT" exec -T --user mailu admin flask mailu config-export domain.name >/dev/null
 
 printf 'Creating Mailu test users...\n'
-docker compose -p "$PROJECT" exec -T admin flask mailu domain example.test
-docker compose -p "$PROJECT" exec -T admin flask mailu admin admin example.test 'Admin-Test-Only-1!'
-docker compose -p "$PROJECT" exec -T admin flask mailu user source example.test 'Source-Test-Only-1!'
-docker compose -p "$PROJECT" exec -T admin flask mailu user target example.test 'Target-Test-Only-1!'
+docker compose -p "$PROJECT" exec -T --user mailu admin flask mailu domain example.test
+docker compose -p "$PROJECT" exec -T --user mailu admin flask mailu admin admin example.test 'Admin-Test-Only-1!'
+docker compose -p "$PROJECT" exec -T --user mailu admin flask mailu user source example.test 'Source-Test-Only-1!'
+docker compose -p "$PROJECT" exec -T --user mailu admin flask mailu user target example.test 'Target-Test-Only-1!'
 
 IMAP_ID=$(docker compose -p "$PROJECT" ps -q imap)
 IMAP_CONTAINER=$(docker inspect --format '{{.Name}}' "$IMAP_ID")

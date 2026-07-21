@@ -56,6 +56,7 @@ The concrete concerns are:
 - **Generated config drift:** because Compose files come from the Mailu setup utility, scripts must validate the dangerous parts, especially published ports, before `docker compose up`.
 - **Compose naming rules:** Docker Compose project names must be lowercase; timestamps in project names use lowercase `t`/`z`.
 - **Startup readiness:** containers can be running before Mailu's admin database migrations are complete. The integration script must wait for a successful admin CLI command before creating domains/users.
+- **Admin exec user:** `docker compose exec admin ...` can create root-owned SQLite files if run as root before migrations complete. Integration admin CLI calls use `--user mailu`.
 - **Local PKI correctness:** Python/OpenSSL verification on this machine rejects CA certificates without CA key-usage extensions, so the generated test CA includes critical CA basic constraints and keyCertSign/cRLSign usage.
 
 When we do run it, use these guardrails:
