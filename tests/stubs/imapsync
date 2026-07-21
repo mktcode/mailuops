@@ -27,6 +27,15 @@ for arg in "$@"; do
 	esac
 done
 printf 'imapsync stub phase %s\n' "$phase"
+if [[ $phase == sync && -n ${IMAPSYNC_CHILD_MARKER:-} ]]; then
+	(
+		trap 'printf "%s\n" terminated >"$IMAPSYNC_CHILD_MARKER"; exit 0' INT TERM HUP
+		printf '%s\n' "$$" >"$IMAPSYNC_CHILD_MARKER.ready"
+		while :; do sleep 1; done
+	) &
+	child=$!
+	wait "$child"
+fi
 if [[ -n ${IMAPSYNC_SLEEP:-} ]]; then sleep "$IMAPSYNC_SLEEP"; fi
 case $phase in
 login) exit "${IMAPSYNC_STATUS_LOGIN:-0}" ;;

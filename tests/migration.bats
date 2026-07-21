@@ -62,3 +62,45 @@ teardown() { teardown_mailuops_env; }
 	kill "$first_pid" 2>/dev/null || true
 	wait "$first_pid" 2>/dev/null || true
 }
+
+@test "quota commands do not wait for migration lock" {
+	export IMAPSYNC_SLEEP=3
+	"$BATS_TEST_DIRNAME/../mailuops" --config "$TEST_ROOT/config.json" migrate probe info@example.com >"$TEST_ROOT/locked.out" 2>"$TEST_ROOT/locked.err" &
+	pid=$!
+	for _ in {1..30}; do
+		if [[ -s "$TEST_ROOT/run/migrate.lock" ]]; then
+			break
+		fi
+		sleep 0.1
+	done
+	run mailuops_cmd quota get info@example.com
+	assert_success
+	kill "$pid" 2>/dev/null || true
+	wait "$pid" 2>/dev/null || true
+}
+
+@test "SIGTERM during sync is forwarded to imapsync process group" {
+	export IMAPSYNC_CHILD_MARKER="$TEST_ROOT/child-signal.marker"
+	"$BATS_TEST_DIRNAME/../mailuops" --config "$TEST_ROOT/config.json" migrate run info@example.com --yes >"$TEST_ROOT/signal.out" 2>"$TEST_ROOT/signal.err" &
+	pid=$!
+	for _ in {1..80}; do
+		if [[ -e "$IMAPSYNC_CHILD_MARKER.ready" ]]; then
+			break
+		fi
+		sleep 0.1
+	done
+	[[ -e "$IMAPSYNC_CHILD_MARKER.ready" ]]
+	kill -TERM "$pid"
+	set +e
+	wait "$pid"
+	st=$?
+	set -e
+	[[ $st -ne 0 ]]
+	for _ in {1..30}; do
+		if [[ -s "$IMAPSYNC_CHILD_MARKER" ]]; then
+			break
+		fi
+		sleep 0.1
+	done
+	grep -Fx terminated "$IMAPSYNC_CHILD_MARKER"
+}

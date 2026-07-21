@@ -25,6 +25,16 @@ teardown() { teardown_mailuops_env; }
 	assert_failure_status 77
 }
 
+@test "passfile outside secrets_dir is rejected" {
+	printf '%s\n' 'outside-password-fixture' >"$TEST_ROOT/outside.pass"
+	chmod 600 "$TEST_ROOT/outside.pass"
+	jq --arg p "$TEST_ROOT/outside.pass" '.source.password_file = $p' "$TEST_ROOT/profiles/profile.json" >"$TEST_ROOT/profiles/profile.tmp"
+	mv "$TEST_ROOT/profiles/profile.tmp" "$TEST_ROOT/profiles/profile.json"
+	chmod 600 "$TEST_ROOT/profiles/profile.json"
+	run mailuops_cmd migrate probe info@example.com
+	assert_failure_status 77
+}
+
 @test "missing CA file is rejected before imapsync" {
 	rm "$TEST_ROOT/ca.pem"
 	run mailuops_cmd migrate probe info@example.com
@@ -48,6 +58,17 @@ teardown() { teardown_mailuops_env; }
 	! grep -Ex -- '--delete1|--delete2|--expunge1|--expunge2|--uidexpunge2' <<<"$argv"
 }
 
+@test "folder mapping value cannot inject an imapsync option" {
+	jq '.folders.map = [{"from":"--delete2","to":"Imported"}]' "$TEST_ROOT/profiles/profile.json" >"$TEST_ROOT/profiles/profile.tmp"
+	mv "$TEST_ROOT/profiles/profile.tmp" "$TEST_ROOT/profiles/profile.json"
+	chmod 600 "$TEST_ROOT/profiles/profile.json"
+	run mailuops_cmd migrate probe info@example.com
+	assert_success
+	argv=$(tr '\t' '\n' <"$MAILUOPS_STUB_DIR/imapsync.argv")
+	! grep -Fx -- '--delete2' <<<"$argv"
+	grep -Fx -- '--delete2=Imported' <<<"$argv"
+}
+
 @test "password values do not appear in output or argv" {
 	run mailuops_cmd migrate probe info@example.com
 	assert_success
@@ -67,4 +88,18 @@ teardown() { teardown_mailuops_env; }
 	ln -s "$TEST_ROOT/config.json" "$TEST_ROOT/profiles/profile.json"
 	run mailuops_cmd migrate probe info@example.com
 	assert_failure_status 77
+}
+
+@test "duplicate migration profile addresses are rejected" {
+	cp "$TEST_ROOT/profiles/profile.json" "$TEST_ROOT/profiles/duplicate.json"
+	chmod 600 "$TEST_ROOT/profiles/duplicate.json"
+	run mailuops_cmd migrate probe info@example.com
+	assert_failure_status 65
+}
+
+@test "malformed unrelated migration profile is rejected during scanning" {
+	printf '{not json\n' >"$TEST_ROOT/profiles/broken.json"
+	chmod 600 "$TEST_ROOT/profiles/broken.json"
+	run mailuops_cmd migrate probe info@example.com
+	assert_failure_status 65
 }

@@ -52,6 +52,7 @@ OP_RUNTIME_DIR=""
 WRAPPER_LOG=""
 INTERRUPTED=0
 ACTIVE_CHILD=""
+ACTIVE_PGID=""
 
 fatal() {
 	local status=$1
@@ -114,16 +115,24 @@ cleanup() {
 }
 
 handle_signal() {
-	local sig=$1
+	local sig=$1 status=130
+	case $sig in
+	HUP) status=129 ;;
+	INT) status=130 ;;
+	TERM) status=143 ;;
+	esac
 	INTERRUPTED=1
 	if [[ -n ${WRAPPER_LOG:-} && -f ${WRAPPER_LOG:-} ]]; then
 		log_wrapper "interrupted by $sig"
+	fi
+	if [[ -n ${ACTIVE_PGID:-} && ${ACTIVE_PGID:-0} -ne $$ ]]; then
+		kill -"$sig" -- "-$ACTIVE_PGID" 2>/dev/null || true
 	fi
 	if [[ -n ${ACTIVE_CHILD:-} ]]; then
 		kill -"$sig" "$ACTIVE_CHILD" 2>/dev/null || true
 		wait "$ACTIVE_CHILD" 2>/dev/null || true
 	fi
-	exit 130
+	exit "$status"
 }
 
 trap 'err_trap "$LINENO" "$?"' ERR
@@ -1122,11 +1131,15 @@ run_imapsync_phase() {
 	exec {tee_in}>&"$tee_in_orig"
 	exec {tee_in_orig}>&-
 	set +e
+	set -m
 	"${IMAPSYNC_CMD[@]}" >&"$tee_in" 2>&1 &
 	ACTIVE_CHILD=$!
+	ACTIVE_PGID=$ACTIVE_CHILD
 	wait "$ACTIVE_CHILD"
 	status=$?
 	ACTIVE_CHILD=""
+	ACTIVE_PGID=""
+	set +m
 	exec {tee_in}>&-
 	wait "$tee_pid"
 	exec {tee_out_orig}<&-
