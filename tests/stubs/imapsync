@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+: "${MAILUOPS_STUB_DIR:?}"
+if [[ ${1:-} == --version ]]; then
+  printf 'imapsync stub 2.290\n'
+  exit 0
+fi
+if [[ ${1:-} == --help ]]; then
+  printf '%s\n' \
+    --host1 --host2 --port1 --port2 --user1 --user2 --passfile1 --passfile2 \
+    --ssl1 --ssl2 --sslargs1 --sslargs2 --timeout1 --timeout2 --justlogin \
+    --dry --justfolders --nofoldersizes --nofoldersizesatend --subscribe \
+    --resyncflags --syncinternaldates --noexpunge1 --noexpunge2 --nouidexpunge2 \
+    --tmpdir --pidfile --pidfilelocking --logfile --noreleasecheck --automap --f1f2
+  exit 0
+fi
+{
+  printf 'imapsync'
+  for arg in "$@"; do printf '\t%q' "$arg"; done
+  printf '\n'
+} >>"$MAILUOPS_STUB_DIR/imapsync.argv"
+phase=sync
+for arg in "$@"; do
+  case $arg in
+    --justlogin) phase=login ;;
+    --justfolders) phase=folders ;;
+  esac
+done
+printf 'imapsync stub phase %s\n' "$phase"
+if [[ -n ${IMAPSYNC_SLEEP:-} ]]; then sleep "$IMAPSYNC_SLEEP"; fi
+case $phase in
+  login) exit "${IMAPSYNC_STATUS_LOGIN:-0}" ;;
+  folders) exit "${IMAPSYNC_STATUS_FOLDERS:-0}" ;;
+  sync) exit "${IMAPSYNC_STATUS_SYNC:-0}" ;;
+esac
