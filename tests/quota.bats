@@ -40,3 +40,15 @@ teardown() { teardown_mailuops_env; }
 	assert_output_contains "Storage limit:  unlimited"
 	assert_output_contains "Usage:          n/a"
 }
+
+@test "quota parser rejects unrecognized row types" {
+	export DOCKER_QUOTA_SINGLE_FILE="$BATS_TEST_DIRNAME/fixtures/quota-unknown-type.json"
+	run mailuops_cmd quota get info@example.com --json
+	assert_failure_status 65
+}
+
+@test "quota parser rejects negative message usage" {
+	export DOCKER_QUOTA_SINGLE_FILE="$BATS_TEST_DIRNAME/fixtures/quota-negative-message.json"
+	run mailuops_cmd quota get info@example.com --json
+	assert_failure_status 65
+}

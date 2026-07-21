@@ -654,6 +654,7 @@ normalize_quota_json() {
     | if length == 0 then error("configured quota root not found") else . end
     | if ($single != "") then map(.mailbox = $single) else . end
     | if any(.mailbox == null or .mailbox == "" or .root == null or .type == null or .value == null) then error("quota row is missing required fields") else . end
+    | if any(.type != "STORAGE" and .type != "MESSAGE") then error("unrecognized quota row type") else . end
     | group_by(.mailbox)
     | map(
         . as $rows
@@ -667,6 +668,7 @@ normalize_quota_json() {
         | ($storage_rows[0].limit | limit_or_null(.; "storage limit")) as $limit_kib
         | ($message_rows[0]? // null) as $mr
         | (if $mr == null then null else ($mr.value | int_or_error(.; "message value")) end) as $messages_used
+        | if ($messages_used != null and $messages_used < 0) then error("negative message usage") else . end
         | (if $mr == null then null else ($mr.limit | limit_or_null(.; "message limit")) end) as $messages_limit
         | {
             mailbox: $mailbox,

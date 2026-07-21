@@ -1,0 +1,4 @@
+[
+  {"username":"info@example.com","quota_name":"User quota","quota_type":"STORAGE","value":"1110","limit":"1464844"},
+  {"username":"info@example.com","quota_name":"User quota","quota_type":"IGNORED","value":"1","limit":"1"}
+]
