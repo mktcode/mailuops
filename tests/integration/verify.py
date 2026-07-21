@@ -22,10 +22,10 @@ with imaplib.IMAP4_SSL('localhost', 993, ssl_context=context) as client:
         match = re.search(r' "?([^"/]+(?:/[^"/]+)*)"?$', text)
         if match:
             folders_seen.add(match.group(1).strip('"'))
-    for required in ('Sent', 'Archive/2024'):
+    for required in ('Sent', 'Archive'):
         if required not in '\n'.join(x.decode(errors='replace') for x in folders or []):
             raise RuntimeError(f'missing folder {required!r}; LIST returned {folders!r}')
-    for folder in ('INBOX', 'Sent', 'Archive/2024'):
+    for folder in ('INBOX', 'Sent', 'Archive'):
         status, _ = client.select(f'"{folder}"', readonly=True)
         if status != 'OK':
             raise RuntimeError(f'cannot select {folder!r}')

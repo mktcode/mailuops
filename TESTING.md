@@ -267,9 +267,9 @@ context = ssl.create_default_context(cafile=str(root / 'pki/ca.crt'))
 
 with imaplib.IMAP4_SSL('localhost', 993, ssl_context=context) as client:
     client.login('source@example.test', password)
-    for folder in ('Sent', 'Archive/2024'):
+    for folder in ('Sent', 'Archive'):
         client.create(folder)
-    for i, folder in enumerate(('INBOX', 'Sent', 'Archive/2024'), start=1):
+    for i, folder in enumerate(('INBOX', 'Sent', 'Archive'), start=1):
         msg = EmailMessage()
         msg['From'] = 'source@example.test'
         msg['To'] = 'recipient@example.test'
