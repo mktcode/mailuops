@@ -1,19 +1,35 @@
 # Real Mailu integration tests
 
-This directory is for optional tests against a disposable Docker Compose Mailu stack.
+This directory contains optional tests against a disposable Docker Compose Mailu stack.
 
-Start with the read-only preflight:
-
-```bash
-tests/integration/preflight.sh
-```
-
-The preflight is safe to run on a development machine. It checks tools, Docker access, port 993, stale `mailuops-it-*` Docker resources, and the stubbed test suite. It does **not** pull images, start containers, remove containers, or modify host files.
-
-Do not add scripts here that start or remove Docker resources unless they require an explicit opt-in, for example:
+Safe read-only preflight:
 
 ```bash
-MAILUOPS_REAL_MAILU=1 tests/integration/up.sh
+make integration-preflight
 ```
 
-The intended real-stack design is documented in `../../TESTING.md`.
+Run the real stack only with explicit opt-in:
+
+```bash
+MAILUOPS_REAL_MAILU=1 make integration
+```
+
+Manual lifecycle, useful for debugging:
+
+```bash
+MAILUOPS_REAL_MAILU=1 make integration-up
+MAILUOPS_REAL_MAILU=1 make integration-test
+MAILUOPS_REAL_MAILU=1 make integration-down
+```
+
+Safety properties:
+
+- requires `MAILUOPS_REAL_MAILU=1` for stack start/test/down scripts;
+- uses a unique `mailuops-it-*` Compose project;
+- writes all bind mounts under `$HOME/.cache/mailuops-it.XXXXXX`;
+- records state in `tests/integration/.state.env`;
+- patches generated Mailu Compose ports to publish only `127.0.0.1:993:993`;
+- validates that no broader published ports remain before `docker compose up`;
+- never edits `/etc/hosts`, firewall rules, Docker daemon settings, or system trust stores.
+
+The design and operational concerns are documented in `../../TESTING.md`.

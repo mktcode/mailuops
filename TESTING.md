@@ -45,18 +45,28 @@ References:
 
 I should **not** run a real Mailu stack on your machine unless you explicitly say so in the same turn.
 
+The concrete concerns are:
+
+- **Port binding:** Mailu normally exposes many mail/web ports. The integration scripts patch and validate the generated Compose file so only `127.0.0.1:993:993` remains published.
+- **Existing Docker resources:** unrelated containers may exist. Every command uses an explicit Compose project name beginning with `mailuops-it-`; no Docker prune or broad cleanup command is allowed.
+- **Image size and runtime cost:** Mailu pulls several images and starts multiple containers. This is why real-stack tests are opt-in only and not part of `make test`.
+- **Mail-server side effects:** the stack must not use Let's Encrypt, public SMTP bindings, production DNS, production domains, or production credentials.
+- **Host modifications:** do not edit `/etc/hosts`, firewall rules, system trust stores, Docker daemon settings, or systemd units. The test uses `localhost` and a per-test CA file instead.
+- **Cleanup correctness:** cleanup must target exactly the recorded `PROJECT` and `TEST_ROOT`. Root-owned bind-mounted files may require Docker-assisted cleanup, but only with `$TEST_ROOT` mounted.
+- **Generated config drift:** because Compose files come from the Mailu setup utility, scripts must validate the dangerous parts, especially published ports, before `docker compose up`.
+
 When we do run it, use these guardrails:
 
 1. Use a unique Compose project name, for example `mailuops-it-$USER-$(date -u +%Y%m%dT%H%M%SZ)`.
-2. Put every bind mount under one disposable root, for example `$HOME/.cache/mailuops-it/...`.
+2. Put every bind mount under one disposable root, for example `$HOME/.cache/mailuops-it.XXXXXX`.
 3. Do not touch `/etc/hosts`.
 4. Do not use production domains, production passwords, production certificates, or production Mailu directories.
-5. Bind services only to `127.0.0.1`.
+5. Bind published services only to `127.0.0.1` and only expose IMAPS port `993`.
 6. Abort if `127.0.0.1:993` is already in use. `mailuops` schema version 1 intentionally requires IMAPS port `993`, so a full migration test needs that local port.
 7. Use `TLS_FLAVOR=cert` with a generated local test CA and a certificate for `localhost`.
 8. Disable unrelated heavy/externally-facing components where the generated Mailu configuration supports it: antivirus, webmail, webdav, letsencrypt.
 9. Never run `docker compose down --volumes` without an explicit `-p "$PROJECT"`.
-10. Keep cleanup commands printed before execution so the exact project and root are visible.
+10. Keep the generated state file and cleanup commands explicit so the exact project and root are visible.
 
 ## Recommended real-stack test scope
 
@@ -370,21 +380,18 @@ rm -rf -- "$TEST_ROOT"
 
 ## Future automation
 
-The repository currently includes a safe read-only preflight:
+The repository currently includes:
 
 ```text
 tests/integration/preflight.sh
-```
-
-After one or two manual successful runs, add optional stack-management scripts under `tests/integration/`:
-
-```text
 tests/integration/up.sh
 tests/integration/seed.py
 tests/integration/verify.py
 tests/integration/test.sh
 tests/integration/down.sh
 ```
+
+The stack-management scripts require explicit opt-in and record their generated project/root in `tests/integration/.state.env`, which is ignored by Git.
 
 They should require an explicit environment opt-in:
 
