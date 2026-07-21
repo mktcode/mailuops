@@ -6,8 +6,8 @@ Assumptions:
 
 - Run these on the Docker host that runs Mailu.
 - You already have Docker CLI access.
-- Commands use common tools normally present on Linux hosts: `bash`, `docker`, `grep`, `awk`, `sort`, `date`, `find`, `du`, `stat`.
-- `jq` is optional. When used, an alternative without `jq` is usually shown.
+- Commands expect common tools normally present on Linux hosts plus `jq`: `bash`, `docker`, `jq`, `grep`, `awk`, `sort`, `date`, `find`, `du`, `stat`, `column`.
+- Install `jq` from the distribution package manager if it is missing; structured Mailu/Dovecot output is much safer to inspect with JSON parsing than table parsing.
 
 Most commands are read-only. Commands that can change state are explicitly marked.
 
@@ -132,7 +132,7 @@ docker exec "$IMAP_CONTAINER" doveadm quota get -A
 docker exec "$IMAP_CONTAINER" doveadm -f json quota get -A
 ```
 
-### Quick quota summary with jq, if jq is available
+### Quick quota summary with jq
 
 ```bash
 docker exec "$IMAP_CONTAINER" doveadm -f json quota get -A \
