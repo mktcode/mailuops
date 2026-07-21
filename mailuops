@@ -4,7 +4,7 @@ umask 077
 export LC_ALL=C
 
 readonly PROGRAM="mailuops"
-readonly VERSION="mailuops 0.1.0"
+readonly VERSION="mailuops 1.0.0-rc1"
 readonly DEFAULT_CONFIG="/etc/mailuops/config.json"
 
 CONFIG_PATH="$DEFAULT_CONFIG"
