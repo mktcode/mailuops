@@ -58,8 +58,14 @@ exec)
 	container=${1:-}
 	shift || true
 	case "${1:-} ${2:-} ${3:-} ${4:-} ${5:-}" in
-	'command -v doveadm  ') exit 0 ;;
-	'doveadm help quota  ') exit 0 ;;
+	'doveadm help   ')
+		[[ ${DOCKER_DOVEADM_MISSING:-0} == 1 ]] && exit 127
+		printf 'usage: doveadm ...\n'
+		;;
+	'doveadm help quota  ')
+		[[ ${DOCKER_DOVEADM_QUOTA_MISSING:-0} == 1 ]] && exit 89
+		printf 'quota get [-u user|-A]\n'
+		;;
 	doveadm\ user*)
 		[[ ${DOCKER_USER_FAIL:-0} == 1 ]] && exit 67
 		exit 0

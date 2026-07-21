@@ -597,9 +597,13 @@ resolve_mailu_container() {
 }
 
 check_doveadm() {
-	docker exec -- "$MAILU_CONTAINER_NAME" command -v doveadm >/dev/null 2>&1 || fatal 69 "doveadm is not available in container $MAILU_CONTAINER_NAME"
-	if ! docker exec -- "$MAILU_CONTAINER_NAME" doveadm help quota >/dev/null 2>&1; then
-		verbose "doveadm help quota failed; continuing to direct quota command validation"
+	local quota_help
+	docker exec -- "$MAILU_CONTAINER_NAME" doveadm help >/dev/null 2>&1 || fatal 69 "doveadm is not available in container $MAILU_CONTAINER_NAME"
+	if ! quota_help=$(docker exec -- "$MAILU_CONTAINER_NAME" doveadm help quota 2>&1); then
+		fatal 69 "doveadm quota help is not available in container $MAILU_CONTAINER_NAME"
+	fi
+	if ! grep -Eq '(^|[[:space:]])get([[:space:]]|$)|quota[[:space:]]+get' <<<"$quota_help"; then
+		fatal 69 "doveadm does not advertise quota get in container $MAILU_CONTAINER_NAME"
 	fi
 }
 
