@@ -58,9 +58,14 @@ exec)
 	container=${1:-}
 	shift || true
 	case "${1:-} ${2:-} ${3:-} ${4:-} ${5:-}" in
+	'doveadm    ')
+		[[ ${DOCKER_DOVEADM_MISSING:-0} == 1 ]] && exit 127
+		[[ ${DOCKER_DOVEADM_QUOTA_MISSING:-0} == 1 ]] && printf 'usage: doveadm ...\n' && exit 0
+		printf 'usage: doveadm ...\n  quota       get|recalc\n'
+		;;
 	'doveadm help   ')
 		[[ ${DOCKER_DOVEADM_MISSING:-0} == 1 ]] && exit 127
-		printf 'usage: doveadm ...\n'
+		printf 'usage: doveadm ...\n  quota       get|recalc\n'
 		;;
 	'doveadm help quota  ')
 		[[ ${DOCKER_DOVEADM_QUOTA_MISSING:-0} == 1 ]] && exit 89
