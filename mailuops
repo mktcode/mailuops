@@ -1,0 +1,1257 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+umask 077
+export LC_ALL=C
+
+readonly PROGRAM="mailuops"
+readonly VERSION="mailuops 0.1.0"
+readonly DEFAULT_CONFIG="/etc/mailuops/config.json"
+
+CONFIG_PATH="$DEFAULT_CONFIG"
+VERBOSE=0
+COMMAND=""
+SUBCOMMAND=""
+ADDRESS=""
+JSON_OUTPUT=0
+YES=0
+
+MAILU_IMAP_CONTAINER=""
+MAILU_COMPOSE_PROJECT=""
+MAILU_QUOTA_ROOT=""
+PROFILES_DIR=""
+SECRETS_DIR=""
+IMAPSYNC_BINARY=""
+DEST_HOST=""
+DEST_PORT=""
+DEST_CA_FILE=""
+SOURCE_DEFAULT_CA_FILE=""
+LOG_DIR=""
+STATE_DIR=""
+RUNTIME_DIR=""
+TIMEOUT_SECONDS=""
+
+PROFILE_FILE=""
+SRC_HOST=""
+SRC_PORT=""
+SRC_USERNAME=""
+SRC_PASSFILE=""
+SRC_CA_FILE=""
+DST_USERNAME=""
+DST_PASSFILE=""
+FOLDERS_AUTOMAP="true"
+declare -a FOLDER_MAP_FROM=()
+declare -a FOLDER_MAP_TO=()
+
+MAILU_CONTAINER_ID=""
+MAILU_CONTAINER_NAME=""
+MIGRATE_LOCK_FD=""
+OP_ID=""
+OP_LOG_DIR=""
+OP_RUNTIME_DIR=""
+WRAPPER_LOG=""
+INTERRUPTED=0
+ACTIVE_CHILD=""
+
+fatal() {
+  local status=$1
+  shift
+  printf '%s: error: %s\n' "$PROGRAM" "$*" >&2
+  exit "$status"
+}
+
+warn() {
+  printf '%s: warning: %s\n' "$PROGRAM" "$*" >&2
+}
+
+verbose() {
+  if [[ $VERBOSE -eq 1 ]]; then
+    printf '%s: %s\n' "$PROGRAM" "$*" >&2
+  fi
+}
+
+usage() {
+  cat <<'EOF'
+Usage:
+  mailuops [--config FILE] [--verbose] quota get ADDRESS [--json]
+  mailuops [--config FILE] [--verbose] quota list [--json]
+  mailuops [--config FILE] [--verbose] migrate probe ADDRESS
+  mailuops [--config FILE] [--verbose] migrate run ADDRESS [--yes]
+
+Global options:
+  --config FILE   Read global configuration from FILE
+                  Default: /etc/mailuops/config.json
+  --verbose       Show additional non-secret diagnostics on stderr
+  -h, --help      Show help
+  --version       Show the mailuops version
+EOF
+}
+
+err_trap() {
+  local line=$1
+  local status=$2
+  if [[ $status -ne 0 ]]; then
+    printf '%s: error: internal failure near line %s (status %s)\n' "$PROGRAM" "$line" "$status" >&2
+  fi
+  exit 70
+}
+
+cleanup() {
+  local status=$?
+  if [[ -n ${WRAPPER_LOG:-} && -f ${WRAPPER_LOG:-} ]]; then
+    log_wrapper "exit status: $status"
+  fi
+  if [[ -n ${OP_RUNTIME_DIR:-} && -d ${OP_RUNTIME_DIR:-} && $INTERRUPTED -eq 0 ]]; then
+    local tmp_paths=()
+    shopt -s nullglob
+    tmp_paths=("$OP_RUNTIME_DIR"/*.tmp)
+    shopt -u nullglob
+    if [[ ${#tmp_paths[@]} -gt 0 ]]; then
+      rm -rf -- "${tmp_paths[@]}" || true
+    fi
+  fi
+  exit "$status"
+}
+
+handle_signal() {
+  local sig=$1
+  INTERRUPTED=1
+  if [[ -n ${WRAPPER_LOG:-} && -f ${WRAPPER_LOG:-} ]]; then
+    log_wrapper "interrupted by $sig"
+  fi
+  if [[ -n ${ACTIVE_CHILD:-} ]]; then
+    kill -"$sig" "$ACTIVE_CHILD" 2>/dev/null || true
+    wait "$ACTIVE_CHILD" 2>/dev/null || true
+  fi
+  exit 130
+}
+
+trap 'err_trap "$LINENO" "$?"' ERR
+trap cleanup EXIT
+trap 'handle_signal INT' INT
+trap 'handle_signal TERM' TERM
+trap 'handle_signal HUP' HUP
+
+parse_cli() {
+  local seen_config=0
+  local seen_verbose=0
+  if [[ $# -eq 0 ]]; then
+    usage >&2
+    exit 64
+  fi
+  while [[ $# -gt 0 ]]; do
+    case $1 in
+      --config)
+        [[ $seen_config -eq 0 ]] || fatal 64 "--config may be specified only once"
+        [[ $# -ge 2 ]] || fatal 64 "--config requires a file argument"
+        CONFIG_PATH=$2
+        seen_config=1
+        shift 2
+        ;;
+      --verbose)
+        [[ $seen_verbose -eq 0 ]] || fatal 64 "--verbose may be specified only once"
+        VERBOSE=1
+        seen_verbose=1
+        shift
+        ;;
+      -h|--help)
+        [[ $# -eq 1 ]] || fatal 64 "--help cannot be combined with other arguments"
+        usage
+        exit 0
+        ;;
+      --version)
+        [[ $# -eq 1 ]] || fatal 64 "--version cannot be combined with other arguments"
+        printf '%s\n' "$VERSION"
+        exit 0
+        ;;
+      quota|migrate)
+        COMMAND=$1
+        shift
+        break
+        ;;
+      --*)
+        fatal 64 "unknown global option: $1"
+        ;;
+      *)
+        fatal 64 "unexpected argument before command: $1"
+        ;;
+    esac
+  done
+
+  case $COMMAND in
+    quota)
+      [[ $# -ge 1 ]] || fatal 64 "quota requires a subcommand"
+      SUBCOMMAND=$1
+      shift
+      case $SUBCOMMAND in
+        get)
+          [[ $# -ge 1 ]] || fatal 64 "quota get requires ADDRESS"
+          ADDRESS=$1
+          shift
+          validate_address "$ADDRESS"
+          parse_quota_tail "$@"
+          ;;
+        list)
+          parse_quota_tail "$@"
+          ;;
+        *)
+          fatal 64 "unknown quota subcommand: $SUBCOMMAND"
+          ;;
+      esac
+      ;;
+    migrate)
+      [[ $# -ge 1 ]] || fatal 64 "migrate requires a subcommand"
+      SUBCOMMAND=$1
+      shift
+      case $SUBCOMMAND in
+        probe)
+          [[ $# -ge 1 ]] || fatal 64 "migrate probe requires ADDRESS"
+          ADDRESS=$1
+          shift
+          validate_address "$ADDRESS"
+          [[ $# -eq 0 ]] || fatal 64 "migrate probe accepts no options after ADDRESS"
+          ;;
+        run)
+          [[ $# -ge 1 ]] || fatal 64 "migrate run requires ADDRESS"
+          ADDRESS=$1
+          shift
+          validate_address "$ADDRESS"
+          parse_run_tail "$@"
+          ;;
+        *)
+          fatal 64 "unknown migrate subcommand: $SUBCOMMAND"
+          ;;
+      esac
+      ;;
+    *)
+      fatal 64 "missing command"
+      ;;
+  esac
+}
+
+parse_quota_tail() {
+  local seen_json=0
+  while [[ $# -gt 0 ]]; do
+    case $1 in
+      --json)
+        [[ $seen_json -eq 0 ]] || fatal 64 "--json may be specified only once"
+        JSON_OUTPUT=1
+        seen_json=1
+        shift
+        ;;
+      --yes)
+        fatal 64 "--yes is valid only for migrate run"
+        ;;
+      --*)
+        fatal 64 "unknown option for quota $SUBCOMMAND: $1"
+        ;;
+      *)
+        fatal 64 "unexpected argument for quota $SUBCOMMAND: $1"
+        ;;
+    esac
+  done
+}
+
+parse_run_tail() {
+  local seen_yes=0
+  while [[ $# -gt 0 ]]; do
+    case $1 in
+      --yes)
+        [[ $seen_yes -eq 0 ]] || fatal 64 "--yes may be specified only once"
+        YES=1
+        seen_yes=1
+        shift
+        ;;
+      --json)
+        fatal 64 "--json is not valid for migration commands"
+        ;;
+      --*)
+        fatal 64 "unknown option for migrate run: $1"
+        ;;
+      *)
+        fatal 64 "unexpected argument for migrate run: $1"
+        ;;
+    esac
+  done
+}
+
+validate_address() {
+  local value=$1
+  [[ -n $value ]] || fatal 64 "address must not be empty"
+  [[ $value != *$'\r'* && $value != *$'\n'* ]] || fatal 64 "address contains a control character"
+  [[ ! $value =~ [[:space:]] ]] || fatal 64 "address contains whitespace"
+  [[ $value != *"@"*"@"* ]] || fatal 64 "address must contain exactly one @"
+  [[ $value == *@* ]] || fatal 64 "address must contain exactly one @"
+  local local_part=${value%@*}
+  local domain_part=${value#*@}
+  [[ -n $local_part && -n $domain_part ]] || fatal 64 "address must have nonempty local and domain parts"
+  [[ $local_part =~ ^[A-Za-z0-9._%+-]+$ ]] || fatal 64 "address local part contains unsupported characters"
+  [[ $domain_part =~ ^[A-Za-z0-9.-]+$ ]] || fatal 64 "address domain contains unsupported characters"
+}
+
+require_command() {
+  local name=$1
+  command -v -- "$name" >/dev/null 2>&1 || fatal 69 "required command not found in PATH: $name"
+}
+
+require_common_dependencies() {
+  require_command jq
+  require_command stat
+  require_command readlink
+}
+
+require_quota_dependencies() {
+  require_common_dependencies
+  require_command docker
+}
+
+require_migration_dependencies() {
+  require_quota_dependencies
+  require_command find
+  require_command sort
+  require_command sha256sum
+  require_command date
+  require_command mktemp
+  require_command mkfifo
+  require_command flock
+}
+
+is_absolute_path() {
+  [[ $1 == /* ]]
+}
+
+mode_octal() {
+  stat -c '%a' -- "$1"
+}
+
+owner_uid() {
+  stat -c '%u' -- "$1"
+}
+
+check_parent_dirs_private() {
+  local path=$1
+  local dir
+  dir=$(dirname -- "$path")
+  while [[ $dir != / && -n $dir ]]; do
+    if [[ -e $dir ]]; then
+      local mode
+      mode=$(mode_octal "$dir")
+      if (( (8#$mode & 0022) != 0 && (8#$mode & 01000) == 0 )); then
+        fatal 77 "directory $dir is group- or world-writable; make configuration paths private"
+      fi
+    fi
+    dir=$(dirname -- "$dir")
+  done
+}
+
+validate_regular_owned_file() {
+  local path=$1
+  local object=$2
+  is_absolute_path "$path" || fatal 65 "$object path is not absolute: $path"
+  [[ -e $path ]] || fatal 66 "$object file not found: $path"
+  [[ ! -L $path ]] || fatal 77 "$object file is a symlink: $path"
+  [[ -f $path ]] || fatal 77 "$object file is not a regular file: $path"
+  local uid mode
+  uid=$(owner_uid "$path")
+  [[ $uid -eq EUID ]] || fatal 77 "$object file $path is owned by uid $uid; required uid is $EUID"
+  mode=$(mode_octal "$path")
+  if (( (8#$mode & 0022) != 0 )); then
+    fatal 77 "$object file $path is group- or world-writable"
+  fi
+}
+
+validate_hostname() {
+  local host=$1
+  local what=$2
+  [[ -n $host ]] || fatal 65 "$what host must not be empty"
+  [[ ! $host =~ [[:space:]] ]] || fatal 65 "$what host contains whitespace"
+  [[ $host != *://* && $host != */* && $host != *:* ]] || fatal 65 "$what host must be a DNS hostname, not a URI or address with a port"
+  [[ $host =~ ^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*$ ]] || fatal 65 "$what host is not a valid DNS hostname: $host"
+}
+
+validate_no_crlf() {
+  local value=$1
+  local what=$2
+  [[ $value != *$'\r'* && $value != *$'\n'* ]] || fatal 65 "$what contains CR or LF"
+}
+
+jq_expect() {
+  local filter=$1
+  local file=$2
+  local msg=$3
+  if ! jq -e "$filter" -- "$file" >/dev/null; then
+    fatal 65 "$msg: $file"
+  fi
+}
+
+load_global_config() {
+  local file=$1
+  validate_config_file_policy "$file"
+  local filter
+  filter=$(cat <<'JQ'
+    def keys_exact($allowed):
+      type == "object" and ((keys_unsorted - $allowed) | length == 0);
+    type == "object"
+    and keys_exact(["schema_version","mailu","migration"])
+    and (.schema_version == 1)
+    and (.mailu | keys_exact(["imap_container","compose_project","quota_root"]))
+    and ((.mailu.imap_container == null) or ((.mailu.imap_container|type) == "string" and (.mailu.imap_container|length) > 0))
+    and ((.mailu.compose_project == null) or ((.mailu.compose_project|type) == "string" and (.mailu.compose_project|length) > 0))
+    and ((.mailu.quota_root|type) == "string" and (.mailu.quota_root|length) > 0)
+    and (.migration | keys_exact(["profiles_dir","secrets_dir","imapsync_binary","destination","source_default_ca_file","log_dir","state_dir","runtime_dir","timeout_seconds"]))
+    and (.migration.destination | keys_exact(["host","port","ca_file"]))
+    and ([.migration.profiles_dir,.migration.secrets_dir,.migration.imapsync_binary,.migration.destination.ca_file,.migration.source_default_ca_file,.migration.log_dir,.migration.state_dir,.migration.runtime_dir] | all(type == "string" and startswith("/")))
+    and ((.migration.destination.host|type) == "string" and (.migration.destination.host|length) > 0)
+    and (.migration.destination.port == 993)
+    and ((.migration.timeout_seconds|type) == "number" and (.migration.timeout_seconds|floor) == .migration.timeout_seconds and .migration.timeout_seconds >= 1 and .migration.timeout_seconds <= 3600)
+JQ
+  )
+  jq_expect "$filter" "$file" "malformed or unsupported global configuration"
+
+  MAILU_IMAP_CONTAINER=$(jq -r '.mailu.imap_container // empty' -- "$file")
+  MAILU_COMPOSE_PROJECT=$(jq -r '.mailu.compose_project // empty' -- "$file")
+  MAILU_QUOTA_ROOT=$(jq -r '.mailu.quota_root' -- "$file")
+  PROFILES_DIR=$(jq -r '.migration.profiles_dir' -- "$file")
+  SECRETS_DIR=$(jq -r '.migration.secrets_dir' -- "$file")
+  IMAPSYNC_BINARY=$(jq -r '.migration.imapsync_binary' -- "$file")
+  DEST_HOST=$(jq -r '.migration.destination.host' -- "$file")
+  DEST_PORT=$(jq -r '.migration.destination.port|tostring' -- "$file")
+  DEST_CA_FILE=$(jq -r '.migration.destination.ca_file' -- "$file")
+  SOURCE_DEFAULT_CA_FILE=$(jq -r '.migration.source_default_ca_file' -- "$file")
+  LOG_DIR=$(jq -r '.migration.log_dir' -- "$file")
+  STATE_DIR=$(jq -r '.migration.state_dir' -- "$file")
+  RUNTIME_DIR=$(jq -r '.migration.runtime_dir' -- "$file")
+  TIMEOUT_SECONDS=$(jq -r '.migration.timeout_seconds|tostring' -- "$file")
+
+  validate_no_crlf "$MAILU_QUOTA_ROOT" "mailu.quota_root"
+  validate_hostname "$DEST_HOST" "migration.destination"
+}
+
+validate_config_file_policy() {
+  local file=$1
+  is_absolute_path "$file" || fatal 65 "configuration path is not absolute: $file"
+  [[ -e $file ]] || fatal 66 "configuration file not found: $file"
+  [[ ! -L $file ]] || fatal 77 "configuration file is a symlink: $file"
+  [[ -f $file ]] || fatal 77 "configuration path is not a regular file: $file"
+  local uid mode
+  uid=$(owner_uid "$file")
+  [[ $uid -eq EUID ]] || fatal 77 "configuration file $file is owned by uid $uid; required uid is $EUID"
+  mode=$(mode_octal "$file")
+  if (( (8#$mode & 0022) != 0 )); then
+    fatal 77 "configuration file $file is group- or world-writable"
+  fi
+  check_parent_dirs_private "$file"
+}
+
+ensure_private_dir() {
+  local path=$1
+  local what=$2
+  is_absolute_path "$path" || fatal 65 "$what path is not absolute: $path"
+  if [[ -e $path ]]; then
+    [[ -d $path && ! -L $path ]] || fatal 73 "$what path exists but is not a directory: $path"
+  else
+    local parent
+    parent=$(dirname -- "$path")
+    [[ -d $parent ]] || fatal 73 "parent directory for $what does not exist: $parent"
+    mkdir -m 0700 -- "$path" || fatal 73 "cannot create $what directory: $path"
+  fi
+  local mode
+  mode=$(mode_octal "$path")
+  if (( (8#$mode & 0077) != 0 )); then
+    fatal 77 "$what directory $path is accessible by group or others; required mode is 0700"
+  fi
+}
+
+validate_ca_file() {
+  local path=$1
+  local what=$2
+  is_absolute_path "$path" || fatal 65 "$what CA file path is not absolute: $path"
+  [[ -e $path ]] || fatal 69 "$what CA file not found: $path"
+  [[ -f $path ]] || fatal 77 "$what CA file is not a regular file: $path"
+  [[ -r $path ]] || fatal 77 "$what CA file is not readable: $path"
+  local mode size
+  mode=$(mode_octal "$path")
+  if (( (8#$mode & 0022) != 0 )); then
+    fatal 77 "$what CA file $path is group- or world-writable"
+  fi
+  size=$(stat -c '%s' -- "$path")
+  [[ $size -gt 0 ]] || fatal 69 "$what CA file is empty: $path"
+}
+
+canonical_path_within() {
+  local path=$1
+  local base=$2
+  local what=$3
+  [[ ! -L $path ]] || fatal 77 "$what is a symlink: $path"
+  local canon_base canon_dir canon_path parent name
+  canon_base=$(readlink -f -- "$base") || fatal 77 "cannot canonicalize secrets directory: $base"
+  parent=$(dirname -- "$path")
+  name=$(basename -- "$path")
+  canon_dir=$(readlink -f -- "$parent") || fatal 77 "cannot canonicalize parent of $what: $parent"
+  canon_path="$canon_dir/$name"
+  case $canon_path in
+    "$canon_base"/*) printf '%s\n' "$canon_path" ;;
+    *) fatal 77 "$what $path resolves outside secrets_dir $base" ;;
+  esac
+}
+
+validate_sensitive_file() {
+  local path=$1
+  local label=$2
+  is_absolute_path "$path" || fatal 65 "$label passfile path is not absolute: $path"
+  [[ -d $SECRETS_DIR && ! -L $SECRETS_DIR ]] || fatal 77 "secrets_dir is not a regular directory: $SECRETS_DIR"
+  local dir_mode
+  dir_mode=$(mode_octal "$SECRETS_DIR")
+  if (( (8#$dir_mode & 0077) != 0 )); then
+    fatal 77 "secrets_dir $SECRETS_DIR is accessible by group or others; required mode is 0700"
+  fi
+  canonical_path_within "$path" "$SECRETS_DIR" "$label passfile" >/dev/null
+  [[ -e $path ]] || fatal 66 "$label passfile not found: $path"
+  [[ ! -L $path ]] || fatal 77 "$label passfile is a symlink: $path"
+  [[ -f $path ]] || fatal 77 "$label passfile is not a regular file: $path"
+  local uid mode
+  uid=$(owner_uid "$path")
+  [[ $uid -eq EUID ]] || fatal 77 "$label passfile $path is owned by uid $uid; required uid is $EUID"
+  mode=$(mode_octal "$path")
+  [[ $mode == 600 ]] || fatal 77 "$label passfile $path has mode $mode; required mode is 0600"
+
+  local first rest saw_first=0
+  if IFS= read -r first < "$path"; then
+    saw_first=1
+  fi
+  [[ $saw_first -eq 1 && -n $first ]] || fatal 77 "$label passfile $path has an empty first line"
+  if [[ $first == *$'\r'* || $first =~ [[:cntrl:]] ]]; then
+    unset first
+    fatal 77 "$label passfile $path contains a control byte in the first line"
+  fi
+  unset first
+  local line_no=0
+  while IFS= read -r rest || [[ -n $rest ]]; do
+    line_no=$((line_no + 1))
+    if [[ $line_no -eq 1 ]]; then
+      continue
+    fi
+    if [[ -n $rest ]]; then
+      unset rest
+      fatal 77 "$label passfile $path contains additional nonempty lines"
+    fi
+  done < "$path"
+  unset rest
+}
+
+validate_executable_policy() {
+  local path=$1
+  is_absolute_path "$path" || fatal 65 "migration.imapsync_binary must be absolute: $path"
+  [[ -e $path ]] || fatal 69 "imapsync executable not found: $path"
+  [[ -f $path ]] || fatal 77 "imapsync path is not a regular file: $path"
+  [[ -x $path ]] || fatal 69 "imapsync path is not executable: $path"
+  local final mode
+  final=$(readlink -f -- "$path") || fatal 77 "cannot canonicalize imapsync executable: $path"
+  if [[ -L $path ]]; then
+    case $final in
+      /usr/*|/usr/local/*|/opt/*|/bin/*|/sbin/*) ;;
+      *) fatal 77 "imapsync executable symlink target is outside administrator-controlled paths: $final" ;;
+    esac
+  fi
+  mode=$(mode_octal "$final")
+  if (( (8#$mode & 0022) != 0 )); then
+    fatal 77 "imapsync executable $final is group- or world-writable"
+  fi
+}
+
+resolve_mailu_container() {
+  local candidates=()
+  if [[ -n $MAILU_IMAP_CONTAINER ]]; then
+    local line
+    if ! line=$(docker inspect --format '{{.Id}}	{{.Name}}	{{.State.Running}}' -- "$MAILU_IMAP_CONTAINER" 2>/dev/null); then
+      fatal 69 "configured Mailu IMAP container not found: $MAILU_IMAP_CONTAINER"
+    fi
+    IFS=$'\t' read -r MAILU_CONTAINER_ID MAILU_CONTAINER_NAME running <<<"$line"
+    MAILU_CONTAINER_NAME=${MAILU_CONTAINER_NAME#/}
+    [[ $running == true ]] || fatal 69 "configured Mailu IMAP container is not running: $MAILU_IMAP_CONTAINER"
+    return
+  fi
+
+  local args=(docker ps --filter label=com.docker.compose.service=imap)
+  if [[ -n $MAILU_COMPOSE_PROJECT ]]; then
+    args+=(--filter "label=com.docker.compose.project=$MAILU_COMPOSE_PROJECT")
+  fi
+  args+=(--format '{{.ID}}	{{.Names}}	{{.Image}}')
+  mapfile -t candidates < <("${args[@]}")
+  if [[ ${#candidates[@]} -eq 0 ]]; then
+    local all=()
+    mapfile -t all < <(docker ps --format '{{.ID}}	{{.Names}}	{{.Image}}')
+    local line image
+    for line in "${all[@]}"; do
+      image=${line##*$'\t'}
+      if [[ $image == ghcr.io/mailu/dovecot:* ]]; then
+        candidates+=("$line")
+      fi
+    done
+  fi
+  [[ ${#candidates[@]} -ne 0 ]] || fatal 69 "no running Mailu IMAP container found; set mailu.imap_container explicitly"
+  [[ ${#candidates[@]} -eq 1 ]] || fatal 69 "multiple running Mailu IMAP containers match; set mailu.imap_container explicitly"
+  local selected=${candidates[0]}
+  local image
+  IFS=$'\t' read -r MAILU_CONTAINER_ID MAILU_CONTAINER_NAME image <<<"$selected"
+  [[ -n $MAILU_CONTAINER_ID && -n $MAILU_CONTAINER_NAME ]] || fatal 70 "failed to parse Docker container selection"
+}
+
+check_doveadm() {
+  docker exec -- "$MAILU_CONTAINER_NAME" command -v doveadm >/dev/null 2>&1 || fatal 69 "doveadm is not available in container $MAILU_CONTAINER_NAME"
+  if ! docker exec -- "$MAILU_CONTAINER_NAME" doveadm help quota >/dev/null 2>&1; then
+    verbose "doveadm help quota failed; continuing to direct quota command validation"
+  fi
+}
+
+verify_mailbox() {
+  local mailbox=$1
+  local cmd=(docker exec -- "$MAILU_CONTAINER_NAME" doveadm user "$mailbox")
+  if [[ $VERBOSE -eq 1 ]]; then
+    "${cmd[@]}" >&2 || fatal 69 "destination mailbox is not available in Dovecot: $mailbox"
+  else
+    "${cmd[@]}" >/dev/null 2>&1 || fatal 69 "destination mailbox is not available in Dovecot: $mailbox"
+  fi
+}
+
+fetch_quota_single_json() {
+  local mailbox=$1
+  docker exec -- "$MAILU_CONTAINER_NAME" doveadm -f json quota get -u "$mailbox"
+}
+
+fetch_quota_all_json() {
+  docker exec -- "$MAILU_CONTAINER_NAME" doveadm -f json quota get -A
+}
+
+normalize_quota_json() {
+  local raw=$1
+  local single_mailbox=$2
+  local filter
+  filter=$(cat <<'JQ'
+    def field($names): first([. as $o | $names[] | $o[.]? | select(. != null)][])?;
+    def int_or_error($v; $name):
+      if ($v|type) == "number" and ($v|floor) == $v then $v
+      elif ($v|type) == "string" and ($v|test("^[0-9]+$")) then ($v|tonumber)
+      else error("malformed numeric value for " + $name) end;
+    def limit_or_null($v; $name):
+      if $v == null or $v == "-" or $v == "" then null
+      else (int_or_error($v; $name) as $n | if $n <= 0 then null else $n end) end;
+    def row:
+      {
+        mailbox: (field(["username","user","mailbox"]) // $single),
+        root: field(["quota_name","quota_root","root","name","Quota name"]),
+        type: (field(["quota_type","type","Type"]) | tostring | ascii_upcase),
+        value: field(["value","Value"]),
+        limit: field(["limit","Limit"])
+      };
+    if (type != "array") then error("quota output is not a JSON array") else . end
+    | map(if type == "object" then row else error("quota row is not an object") end)
+    | map(select(.root == $root))
+    | if length == 0 then error("configured quota root not found") else . end
+    | if ($single != "") then map(.mailbox = $single) else . end
+    | if any(.mailbox == null or .mailbox == "" or .root == null or .type == null or .value == null) then error("quota row is missing required fields") else . end
+    | group_by(.mailbox)
+    | map(
+        . as $rows
+        | ($rows[0].mailbox) as $mailbox
+        | ([$rows[] | select(.type == "STORAGE")]) as $storage_rows
+        | ([$rows[] | select(.type == "MESSAGE")]) as $message_rows
+        | if ($storage_rows|length) != 1 then error("expected exactly one STORAGE row for " + $mailbox) else . end
+        | if ($message_rows|length) > 1 then error("duplicate MESSAGE row for " + $mailbox) else . end
+        | ($storage_rows[0].value | int_or_error(.; "storage value")) as $used_kib
+        | if $used_kib < 0 then error("negative storage usage") else . end
+        | ($storage_rows[0].limit | limit_or_null(.; "storage limit")) as $limit_kib
+        | ($message_rows[0]? // null) as $mr
+        | (if $mr == null then null else ($mr.value | int_or_error(.; "message value")) end) as $messages_used
+        | (if $mr == null then null else ($mr.limit | limit_or_null(.; "message limit")) end) as $messages_limit
+        | {
+            mailbox: $mailbox,
+            quota_root: $root,
+            storage: {
+              used_kib: $used_kib,
+              limit_kib: $limit_kib,
+              used_bytes: ($used_kib * 1024),
+              limit_bytes: (if $limit_kib == null then null else $limit_kib * 1024 end),
+              percent: (if $limit_kib == null then null else (($used_kib / $limit_kib) * 100) end)
+            },
+            messages: {
+              used: $messages_used,
+              limit: $messages_limit,
+              percent: (if ($messages_limit == null or $messages_used == null) then null else (($messages_used / $messages_limit) * 100) end)
+            }
+          }
+      )
+    | sort_by(.mailbox)
+    | if $single != "" then (if length == 1 then .[0] else error("unexpected number of quota objects") end) else . end
+JQ
+  )
+  jq -c --arg root "$MAILU_QUOTA_ROOT" --arg single "$single_mailbox" "$filter" <<<"$raw"
+}
+
+format_scaled_2() {
+  local value=$1
+  local denom=$2
+  local scaled int frac
+  scaled=$(((value * 100 + denom / 2) / denom))
+  int=$((scaled / 100))
+  frac=$((scaled % 100))
+  printf '%d.%02d' "$int" "$frac"
+}
+
+human_bytes() {
+  local bytes=${1:-}
+  [[ -n $bytes && $bytes != null ]] || { printf 'unlimited'; return; }
+  if [[ $bytes -eq 0 ]]; then
+    printf '0 B'
+  elif [[ $bytes -lt 1024 ]]; then
+    printf '%d B' "$bytes"
+  elif [[ $bytes -lt 1048576 ]]; then
+    printf '%s KiB' "$(format_scaled_2 "$bytes" 1024)"
+  elif [[ $bytes -lt 1073741824 ]]; then
+    printf '%s MiB' "$(format_scaled_2 "$bytes" 1048576)"
+  elif [[ $bytes -lt 1099511627776 ]]; then
+    printf '%s GiB' "$(format_scaled_2 "$bytes" 1073741824)"
+  elif [[ $bytes -lt 1125899906842624 ]]; then
+    printf '%s TiB' "$(format_scaled_2 "$bytes" 1099511627776)"
+  else
+    printf '%s PiB' "$(format_scaled_2 "$bytes" 1125899906842624)"
+  fi
+}
+
+human_storage_percent() {
+  local used=$1
+  local limit=${2:-}
+  [[ -n $limit && $limit != null ]] || { printf 'n/a'; return; }
+  local scaled int frac
+  scaled=$(((used * 10000 + limit / 2) / limit))
+  int=$((scaled / 100))
+  frac=$((scaled % 100))
+  printf '%d.%02d%%' "$int" "$frac"
+}
+
+render_quota_human_single() {
+  local json=$1
+  local mailbox used_bytes limit_bytes messages
+  mailbox=$(jq -r '.mailbox' <<<"$json")
+  used_bytes=$(jq -r '.storage.used_bytes' <<<"$json")
+  limit_bytes=$(jq -r '.storage.limit_bytes // empty' <<<"$json")
+  messages=$(jq -r '.messages.used // "n/a"' <<<"$json")
+  printf 'Mailbox:        %s\n' "$mailbox"
+  printf 'Storage used:   %s\n' "$(human_bytes "$used_bytes")"
+  printf 'Storage limit:  %s\n' "$(human_bytes "$limit_bytes")"
+  printf 'Usage:          %s\n' "$(human_storage_percent "$used_bytes" "$limit_bytes")"
+  printf 'Messages:       %s\n' "$messages"
+}
+
+render_quota_human_list() {
+  local json=$1
+  local rows=()
+  mapfile -t rows < <(jq -r '.[] | [.mailbox,.storage.used_bytes,((.storage.limit_bytes // "")|tostring),(.messages.used // "n/a")] | @tsv' <<<"$json")
+  local width
+  width=$(jq -r 'map(.mailbox|length) + [7] | max' <<<"$json")
+  printf "%-${width}s  %10s  %10s  %7s  %9s\n" "MAILBOX" "USED" "LIMIT" "USAGE" "MESSAGES"
+  local row mailbox used_bytes limit_bytes messages used_h limit_h usage_h
+  for row in "${rows[@]}"; do
+    IFS=$'\t' read -r mailbox used_bytes limit_bytes messages <<<"$row"
+    used_h=$(human_bytes "$used_bytes")
+    limit_h=$(human_bytes "$limit_bytes")
+    usage_h=$(human_storage_percent "$used_bytes" "$limit_bytes")
+    printf "%-${width}s  %10s  %10s  %7s  %9s\n" "$mailbox" "$used_h" "$limit_h" "$usage_h" "$messages"
+  done
+}
+
+quota_get() {
+  require_quota_dependencies
+  load_global_config "$CONFIG_PATH"
+  resolve_mailu_container
+  check_doveadm
+  verify_mailbox "$ADDRESS"
+  local raw normalized
+  if ! raw=$(fetch_quota_single_json "$ADDRESS"); then
+    fatal 69 "failed to query Dovecot quota for $ADDRESS"
+  fi
+  if ! normalized=$(normalize_quota_json "$raw" "$ADDRESS"); then
+    fatal 65 "malformed Dovecot quota JSON output for quota root $MAILU_QUOTA_ROOT"
+  fi
+  if [[ $JSON_OUTPUT -eq 1 ]]; then
+    jq '.' <<<"$normalized"
+  else
+    render_quota_human_single "$normalized"
+  fi
+}
+
+quota_list() {
+  require_quota_dependencies
+  load_global_config "$CONFIG_PATH"
+  resolve_mailu_container
+  check_doveadm
+  local raw normalized
+  if ! raw=$(fetch_quota_all_json); then
+    fatal 69 "failed to query Dovecot quotas for all mailboxes"
+  fi
+  if ! normalized=$(normalize_quota_json "$raw" ""); then
+    fatal 65 "malformed Dovecot quota JSON output for quota root $MAILU_QUOTA_ROOT"
+  fi
+  if [[ $JSON_OUTPUT -eq 1 ]]; then
+    jq '.' <<<"$normalized"
+  else
+    render_quota_human_list "$normalized"
+  fi
+}
+
+validate_profile_file_policy() {
+  local file=$1
+  [[ -e $file ]] || fatal 66 "migration profile not found: $file"
+  [[ ! -L $file ]] || fatal 77 "migration profile is a symlink: $file"
+  [[ -f $file ]] || fatal 77 "migration profile is not a regular file: $file"
+  local uid mode
+  uid=$(owner_uid "$file")
+  [[ $uid -eq EUID ]] || fatal 77 "migration profile $file is owned by uid $uid; required uid is $EUID"
+  mode=$(mode_octal "$file")
+  if (( (8#$mode & 0022) != 0 )); then
+    fatal 77 "migration profile $file is group- or world-writable"
+  fi
+}
+
+find_profile() {
+  local address=$1
+  [[ -d $PROFILES_DIR && ! -L $PROFILES_DIR ]] || fatal 66 "migration profiles directory not found or not a directory: $PROFILES_DIR"
+  local dir_mode
+  dir_mode=$(mode_octal "$PROFILES_DIR")
+  if (( (8#$dir_mode & 0022) != 0 )); then
+    fatal 77 "migration profiles directory $PROFILES_DIR is group- or world-writable"
+  fi
+  local files=()
+  mapfile -d '' files < <(find -P "$PROFILES_DIR" -maxdepth 1 -type f -name '*.json' -print0 | sort -z)
+  local matches=()
+  local file profile_address
+  for file in "${files[@]}"; do
+    validate_profile_file_policy "$file"
+    if ! profile_address=$(jq -r 'if type == "object" and (.address|type) == "string" then .address else error("profile missing address") end' -- "$file"); then
+      fatal 65 "malformed migration profile while scanning: $file"
+    fi
+    if [[ $profile_address == "$address" ]]; then
+      matches+=("$file")
+    fi
+  done
+  [[ ${#matches[@]} -gt 0 ]] || fatal 66 "no migration profile has address \"$address\""
+  [[ ${#matches[@]} -eq 1 ]] || fatal 65 "more than one migration profile has address \"$address\""
+  PROFILE_FILE=${matches[0]}
+}
+
+validate_profile() {
+  local file=$1
+  local address=$2
+  local filter
+  filter=$(cat <<'JQ'
+    def keys_exact($allowed): type == "object" and ((keys_unsorted - $allowed) | length == 0);
+    def clean_string: type == "string" and length > 0 and (test("[\u0000-\u001f]")|not);
+    type == "object"
+    and keys_exact(["schema_version","address","source","destination","folders"])
+    and (.schema_version == 1)
+    and (.address == $address)
+    and (.source | keys_exact(["host","port","username","password_file","ca_file"]))
+    and (.destination | keys_exact(["username","password_file"]))
+    and (.source.host | clean_string)
+    and (.source.port == 993)
+    and (.source.username | clean_string)
+    and (.source.password_file | type == "string" and startswith("/"))
+    and ((.source.ca_file == null) or (.source.ca_file | type == "string" and startswith("/")))
+    and (.destination.username | clean_string)
+    and (.destination.password_file | type == "string" and startswith("/"))
+    and ((.folders == null) or (
+      .folders | keys_exact(["automap","map"])
+      and (.automap | type == "boolean")
+      and (.map | type == "array")
+      and (.map | length <= 100)
+      and all(.map[]; keys_exact(["from","to"]) and (.from | type == "string" and length > 0 and (test("[\u0000-\u001f=]")|not)) and (.to | type == "string" and length > 0 and (test("[\u0000-\u001f=]")|not)))
+      and ((.map | map(.from) | unique | length) == (.map | length))
+      and ((.map | map(.from + "=" + .to) | unique | length) == (.map | length))
+    ))
+JQ
+  )
+  if ! jq -e --arg address "$address" "$filter" -- "$file" >/dev/null; then
+    fatal 65 "malformed or unsupported migration profile: $file"
+  fi
+
+  SRC_HOST=$(jq -r '.source.host' -- "$file")
+  SRC_PORT=$(jq -r '.source.port|tostring' -- "$file")
+  SRC_USERNAME=$(jq -r '.source.username' -- "$file")
+  SRC_PASSFILE=$(jq -r '.source.password_file' -- "$file")
+  SRC_CA_FILE=$(jq -r '.source.ca_file // empty' -- "$file")
+  if [[ -z $SRC_CA_FILE ]]; then
+    SRC_CA_FILE=$SOURCE_DEFAULT_CA_FILE
+  fi
+  DST_USERNAME=$(jq -r '.destination.username' -- "$file")
+  DST_PASSFILE=$(jq -r '.destination.password_file' -- "$file")
+  FOLDERS_AUTOMAP=$(jq -r '.folders.automap // true' -- "$file")
+  FOLDER_MAP_FROM=()
+  FOLDER_MAP_TO=()
+  local line from to
+  while IFS=$'\t' read -r from to; do
+    [[ -n ${from:-} ]] || continue
+    FOLDER_MAP_FROM+=("$from")
+    FOLDER_MAP_TO+=("$to")
+  done < <(jq -r '(.folders.map // [])[] | [.from,.to] | @tsv' -- "$file")
+
+  validate_hostname "$SRC_HOST" "profile source"
+  validate_no_crlf "$SRC_USERNAME" "source username"
+  validate_no_crlf "$DST_USERNAME" "destination username"
+  if [[ ${SRC_HOST,,} == "${DEST_HOST,,}" && $SRC_PORT == "$DEST_PORT" && $SRC_USERNAME == "$DST_USERNAME" ]]; then
+    fatal 65 "source and destination endpoints are identical for $address"
+  fi
+}
+
+acquire_migration_lock() {
+  ensure_private_dir "$RUNTIME_DIR" "runtime"
+  local lock_path="$RUNTIME_DIR/migrate.lock"
+  if [[ ! -e $lock_path ]]; then
+    : >"$lock_path" || fatal 73 "cannot create migration lock file: $lock_path"
+  fi
+  [[ ! -L $lock_path ]] || fatal 77 "migration lock file is a symlink: $lock_path"
+  chmod 0600 -- "$lock_path" || fatal 73 "cannot protect migration lock file: $lock_path"
+  exec {MIGRATE_LOCK_FD}<>"$lock_path" || fatal 73 "cannot open migration lock file: $lock_path"
+  if ! flock -n "$MIGRATE_LOCK_FD"; then
+    local meta=""
+    meta=$(tr '\n' ' ' <"$lock_path" 2>/dev/null || true)
+    if [[ -n $meta ]]; then
+      fatal 75 "migration lock already held at $lock_path ($meta)"
+    fi
+    fatal 75 "migration lock already held at $lock_path"
+  fi
+  : >"$lock_path"
+  printf 'pid=%s address=%s command=%s %s\n' "$$" "$ADDRESS" "$COMMAND" "$SUBCOMMAND" >&"$MIGRATE_LOCK_FD"
+}
+
+create_operation_context() {
+  ensure_private_dir "$LOG_DIR" "log"
+  ensure_private_dir "$STATE_DIR" "state"
+  ensure_private_dir "$RUNTIME_DIR" "runtime"
+  local ts sanitized hash suffix base n
+  ts=$(date -u '+%Y%m%dT%H%M%SZ')
+  sanitized=$(printf '%s' "$ADDRESS" | tr -c 'A-Za-z0-9._-' '_' | cut -c 1-48)
+  read -r hash _ < <(printf '%s' "$ADDRESS" | sha256sum)
+  suffix=${hash:0:12}
+  base="$ts-$sanitized-$suffix"
+  n=0
+  while :; do
+    if [[ $n -eq 0 ]]; then
+      OP_ID=$base
+    else
+      OP_ID="$base-$n"
+    fi
+    OP_LOG_DIR="$LOG_DIR/$OP_ID"
+    if mkdir -m 0700 -- "$OP_LOG_DIR" 2>/dev/null; then
+      break
+    fi
+    n=$((n + 1))
+    [[ $n -lt 100 ]] || fatal 73 "cannot create unique operation log directory under $LOG_DIR"
+  done
+  OP_RUNTIME_DIR="$RUNTIME_DIR/$OP_ID"
+  mkdir -m 0700 -- "$OP_RUNTIME_DIR" || fatal 73 "cannot create operation runtime directory: $OP_RUNTIME_DIR"
+  WRAPPER_LOG="$OP_LOG_DIR/wrapper.log"
+  : >"$WRAPPER_LOG"
+  chmod 0600 -- "$WRAPPER_LOG"
+  log_wrapper "operation: $COMMAND $SUBCOMMAND $ADDRESS"
+  log_wrapper "profile: ${PROFILE_FILE:-none}"
+  log_wrapper "source endpoint: $SRC_USERNAME@$SRC_HOST:$SRC_PORT"
+  log_wrapper "destination endpoint: $DST_USERNAME@$DEST_HOST:$DEST_PORT"
+}
+
+log_wrapper() {
+  local msg=$1
+  [[ -n ${WRAPPER_LOG:-} ]] || return 0
+  printf '%s %s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$msg" >>"$WRAPPER_LOG"
+}
+
+check_imapsync_capabilities() {
+  validate_executable_policy "$IMAPSYNC_BINARY"
+  local version help combined version_line
+  if ! version=$("$IMAPSYNC_BINARY" --version 2>&1); then
+    fatal 69 "failed to run imapsync --version: $IMAPSYNC_BINARY"
+  fi
+  if ! help=$("$IMAPSYNC_BINARY" --help 2>&1); then
+    fatal 69 "failed to run imapsync --help: $IMAPSYNC_BINARY"
+  fi
+  combined=$version$'\n'$help
+  IFS= read -r version_line <<<"$version"
+  log_wrapper "imapsync version: $version_line"
+  local required=(
+    --host1 --host2 --port1 --port2 --user1 --user2 --passfile1 --passfile2
+    --ssl1 --ssl2 --sslargs1 --sslargs2 --timeout1 --timeout2 --justlogin
+    --dry --justfolders --nofoldersizes --nofoldersizesatend --subscribe
+    --resyncflags --syncinternaldates --noexpunge1 --noexpunge2 --nouidexpunge2
+    --tmpdir --pidfile --pidfilelocking --logfile --noreleasecheck --automap --f1f2
+  )
+  local opt tokens
+  tokens=$(printf '%s\n' "$combined" | tr '[:space:],;()[]{}' '\n' | grep '^--' || true)
+  for opt in "${required[@]}"; do
+    if ! grep -Fx -- "$opt" <<<"$tokens" >/dev/null; then
+      fatal 69 "imapsync executable $IMAPSYNC_BINARY does not advertise required option $opt"
+    fi
+  done
+}
+
+build_imapsync_base_args() {
+  local phase=$1
+  local tmpdir="$OP_RUNTIME_DIR/$phase.tmp"
+  local pidfile="$OP_RUNTIME_DIR/$phase.pid"
+  local logfile="$OP_LOG_DIR/$phase.imapsync.log"
+  mkdir -m 0700 -- "$tmpdir" || fatal 73 "cannot create phase temporary directory: $tmpdir"
+  : >"$logfile"
+  chmod 0600 -- "$logfile"
+  IMAPSYNC_CMD=(
+    "$IMAPSYNC_BINARY"
+    --host1 "$SRC_HOST"
+    --port1 "$SRC_PORT"
+    --ssl1
+    --sslargs1 SSL_verify_mode=1
+    --sslargs1 "SSL_ca_file=$SRC_CA_FILE"
+    --user1 "$SRC_USERNAME"
+    --passfile1 "$SRC_PASSFILE"
+    --host2 "$DEST_HOST"
+    --port2 "$DEST_PORT"
+    --ssl2
+    --sslargs2 SSL_verify_mode=1
+    --sslargs2 "SSL_ca_file=$DEST_CA_FILE"
+    --user2 "$DST_USERNAME"
+    --passfile2 "$DST_PASSFILE"
+    --timeout1 "$TIMEOUT_SECONDS"
+    --timeout2 "$TIMEOUT_SECONDS"
+    --subscribe
+    --resyncflags
+    --syncinternaldates
+    --noexpunge1
+    --noexpunge2
+    --nouidexpunge2
+    --tmpdir "$tmpdir"
+    --pidfile "$pidfile"
+    --pidfilelocking
+    --logfile "$logfile"
+    --noreleasecheck
+  )
+}
+
+declare -a IMAPSYNC_CMD=()
+
+append_folder_args() {
+  if [[ $FOLDERS_AUTOMAP == true ]]; then
+    IMAPSYNC_CMD+=(--automap)
+  fi
+  local i
+  for ((i = 0; i < ${#FOLDER_MAP_FROM[@]}; i++)); do
+    IMAPSYNC_CMD+=(--f1f2 "${FOLDER_MAP_FROM[$i]}=${FOLDER_MAP_TO[$i]}")
+  done
+}
+
+redacted_command_line() {
+  local -n arr=$1
+  local out=()
+  local i redact_next=0
+  for ((i = 0; i < ${#arr[@]}; i++)); do
+    if [[ $redact_next -eq 1 ]]; then
+      out+=("<protected-passfile>")
+      redact_next=0
+      continue
+    fi
+    out+=("${arr[$i]}")
+    case ${arr[$i]} in
+      --passfile1|--passfile2) redact_next=1 ;;
+    esac
+  done
+  printf '%q ' "${out[@]}"
+  printf '\n'
+}
+
+run_imapsync_phase() {
+  local phase=$1
+  shift
+  validate_sensitive_file "$SRC_PASSFILE" "source"
+  validate_sensitive_file "$DST_PASSFILE" "destination"
+  build_imapsync_base_args "$phase"
+  case $phase in
+    01-login|03-login)
+      IMAPSYNC_CMD+=(--justlogin)
+      ;;
+    02-folders)
+      IMAPSYNC_CMD+=(--dry --justfolders --nofoldersizes --nofoldersizesatend)
+      append_folder_args
+      ;;
+    04-sync)
+      append_folder_args
+      ;;
+    *)
+      fatal 70 "unknown imapsync phase: $phase"
+      ;;
+  esac
+  local console_log="$OP_LOG_DIR/$phase.console.log"
+  : >"$console_log"
+  chmod 0600 -- "$console_log"
+  log_wrapper "phase $phase start: $(redacted_command_line IMAPSYNC_CMD)"
+  printf '== %s ==\n' "$*"
+  local status fifo tee_pid
+  fifo="$OP_RUNTIME_DIR/$phase.output.pipe"
+  mkfifo -m 0600 -- "$fifo" || fatal 73 "cannot create phase output pipe: $fifo"
+  tee -- "$console_log" <"$fifo" &
+  tee_pid=$!
+  set +e
+  "${IMAPSYNC_CMD[@]}" >"$fifo" 2>&1 &
+  ACTIVE_CHILD=$!
+  wait "$ACTIVE_CHILD"
+  status=$?
+  ACTIVE_CHILD=""
+  wait "$tee_pid"
+  rm -f -- "$fifo"
+  set -e
+  log_wrapper "phase $phase status: $status"
+  return "$status"
+}
+
+migration_preflight() {
+  load_global_config "$CONFIG_PATH"
+  find_profile "$ADDRESS"
+  validate_profile "$PROFILE_FILE" "$ADDRESS"
+  if [[ -z ${WRAPPER_LOG:-} ]]; then
+    create_operation_context
+  fi
+  validate_sensitive_file "$SRC_PASSFILE" "source"
+  validate_sensitive_file "$DST_PASSFILE" "destination"
+  validate_ca_file "$SRC_CA_FILE" "source"
+  validate_ca_file "$DEST_CA_FILE" "destination"
+  check_imapsync_capabilities
+  resolve_mailu_container
+  check_doveadm
+  verify_mailbox "$ADDRESS"
+  local raw normalized used limit
+  if ! raw=$(fetch_quota_single_json "$ADDRESS"); then
+    fatal 69 "failed to query destination quota during migration preflight for $ADDRESS"
+  fi
+  if ! normalized=$(normalize_quota_json "$raw" "$ADDRESS"); then
+    fatal 65 "malformed Dovecot quota JSON output for quota root $MAILU_QUOTA_ROOT"
+  fi
+  used=$(jq -r '.storage.used_bytes' <<<"$normalized")
+  limit=$(jq -r '.storage.limit_bytes // empty' <<<"$normalized")
+  if [[ -n $limit && $limit -le $used ]]; then
+    fatal 69 "destination mailbox $ADDRESS has no remaining finite quota capacity"
+  fi
+  if [[ -n $limit ]]; then
+    local remaining=$((limit - used))
+    if [[ $remaining -lt 104857600 ]]; then
+      warn "destination mailbox $ADDRESS has less than 100 MiB remaining quota"
+    fi
+  fi
+  PREFLIGHT_QUOTA_JSON=$normalized
+}
+
+declare PREFLIGHT_QUOTA_JSON=""
+
+migration_probe() {
+  require_migration_dependencies
+  load_global_config "$CONFIG_PATH"
+  acquire_migration_lock
+  migration_preflight
+  local st
+  if run_imapsync_phase 01-login "login test"; then
+    :
+  else
+    st=$?
+    exit "$st"
+  fi
+  if run_imapsync_phase 02-folders "dry folder plan"; then
+    :
+  else
+    st=$?
+    exit "$st"
+  fi
+  printf 'Migration probe: %s\n' "$ADDRESS"
+  printf 'Source:      %s @ %s:%s (verified IMAPS)\n' "$SRC_USERNAME" "$SRC_HOST" "$SRC_PORT"
+  printf 'Destination: %s @ %s:%s (verified IMAPS)\n' "$DST_USERNAME" "$DEST_HOST" "$DEST_PORT"
+  printf 'Mailu quota: '
+  jq -r 'if .storage.limit_bytes == null then ((.storage.used_bytes|tostring) + " bytes used of unlimited") else ((.storage.used_bytes|tostring) + " bytes used of " + (.storage.limit_bytes|tostring)) end' <<<"$PREFLIGHT_QUOTA_JSON"
+  printf 'Login test:  passed\n'
+  printf 'Folder plan: passed; see %s/\n' "$OP_LOG_DIR"
+  printf 'Result:      safe to run an additive migration\n'
+}
+
+confirm_exact_address() {
+  if [[ $YES -eq 1 ]]; then
+    return 0
+  fi
+  [[ -t 0 ]] || fatal 64 "migrate run without --yes requires an interactive terminal"
+  printf 'This operation will add or update mail in the destination mailbox.\n'
+  printf 'It will not delete or expunge messages on either endpoint.\n\n'
+  printf 'Type the destination mailbox exactly to continue: '
+  local answer
+  if ! IFS= read -r answer; then
+    fatal 64 "confirmation aborted before reading the destination mailbox"
+  fi
+  [[ $answer == "$DST_USERNAME" ]] || fatal 64 "confirmation mismatch; real migration was not started"
+}
+
+migration_run() {
+  require_migration_dependencies
+  load_global_config "$CONFIG_PATH"
+  acquire_migration_lock
+  migration_preflight
+  local st
+  if run_imapsync_phase 01-login "login test"; then
+    :
+  else
+    st=$?
+    exit "$st"
+  fi
+  if run_imapsync_phase 02-folders "dry folder plan"; then
+    :
+  else
+    st=$?
+    exit "$st"
+  fi
+  printf 'Migration run: %s\n' "$ADDRESS"
+  printf 'Source:      %s @ %s:%s (verified IMAPS)\n' "$SRC_USERNAME" "$SRC_HOST" "$SRC_PORT"
+  printf 'Destination: %s @ %s:%s (verified IMAPS)\n' "$DST_USERNAME" "$DEST_HOST" "$DEST_PORT"
+  confirm_exact_address
+  validate_sensitive_file "$SRC_PASSFILE" "source"
+  validate_sensitive_file "$DST_PASSFILE" "destination"
+  if run_imapsync_phase 03-login "repeated login test"; then
+    :
+  else
+    st=$?
+    exit "$st"
+  fi
+  if run_imapsync_phase 04-sync "additive transfer"; then
+    :
+  else
+    st=$?
+    exit "$st"
+  fi
+  local raw normalized
+  if raw=$(fetch_quota_single_json "$ADDRESS"); then
+    if normalized=$(normalize_quota_json "$raw" "$ADDRESS"); then
+      printf 'Postflight quota:\n'
+      render_quota_human_single "$normalized"
+    else
+      warn "transfer succeeded but postflight quota output was malformed for $ADDRESS"
+    fi
+  else
+    warn "transfer succeeded but postflight quota display failed for $ADDRESS"
+  fi
+  printf 'Migration completed successfully for %s\n' "$ADDRESS"
+  printf 'Logs: %s/\n' "$OP_LOG_DIR"
+  log_wrapper "operation successful"
+}
+
+main() {
+  if [[ ${BASH_XTRACEFD:-} ]]; then
+    unset BASH_XTRACEFD
+  fi
+  set +x
+  parse_cli "$@"
+  case "$COMMAND:$SUBCOMMAND" in
+    quota:get) quota_get ;;
+    quota:list) quota_list ;;
+    migrate:probe) migration_probe ;;
+    migrate:run) migration_run ;;
+    *) fatal 64 "unsupported command" ;;
+  esac
+}
+
+main "$@"

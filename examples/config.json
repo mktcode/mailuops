@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "mailu": {
+    "imap_container": "mailu-imap-1",
+    "compose_project": "mailu",
+    "quota_root": "User quota"
+  },
+  "migration": {
+    "profiles_dir": "/etc/mailuops/migrations.d",
+    "secrets_dir": "/etc/mailuops/secrets",
+    "imapsync_binary": "/usr/local/bin/imapsync",
+    "destination": {
+      "host": "mail.example.net",
+      "port": 993,
+      "ca_file": "/etc/ssl/certs/ca-certificates.crt"
+    },
+    "source_default_ca_file": "/etc/ssl/certs/ca-certificates.crt",
+    "log_dir": "/var/log/mailuops",
+    "state_dir": "/var/lib/mailuops",
+    "runtime_dir": "/run/mailuops",
+    "timeout_seconds": 120
+  }
+}

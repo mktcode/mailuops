@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "address": "info@example.com",
+  "source": {
+    "host": "imap.old-provider.example",
+    "port": 993,
+    "username": "info@example.com",
+    "password_file": "/etc/mailuops/secrets/info.source.pass",
+    "ca_file": "/etc/ssl/certs/ca-certificates.crt"
+  },
+  "destination": {
+    "username": "info@example.com",
+    "password_file": "/etc/mailuops/secrets/info.destination.pass"
+  },
+  "folders": {
+    "automap": true,
+    "map": [
+      {
+        "from": "Sent Items",
+        "to": "Sent"
+      }
+    ]
+  }
+}
