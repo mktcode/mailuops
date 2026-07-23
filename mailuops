@@ -4,22 +4,9 @@ set +x
 umask 077
 unset BASH_ENV ENV BASH_XTRACEFD
 export LC_ALL=C
-readonly MAILUOPS_SYSTEM_PATH=/usr/sbin:/usr/bin:/sbin:/bin
 if [[ ${EUID:-$(id -u)} -eq 0 ]]; then
-	if [[ -n ${MAILUOPS_TEST_SAFE_PATH:-} && -n ${MAILUOPS_TEST_ROOT:-} && -n ${BATS_TEST_FILENAME:-} && -n ${BATS_TEST_NAME:-} ]]; then
-		case $BATS_TEST_FILENAME:$MAILUOPS_TEST_SAFE_PATH in
-		*/tests/*.bats:"$MAILUOPS_TEST_ROOT"/bin:$MAILUOPS_SYSTEM_PATH)
-			export PATH=$MAILUOPS_TEST_SAFE_PATH
-			;;
-		*)
-			export PATH=$MAILUOPS_SYSTEM_PATH
-			;;
-		esac
-	else
-		export PATH=$MAILUOPS_SYSTEM_PATH
-	fi
+	export PATH=/usr/sbin:/usr/bin:/sbin:/bin
 fi
-unset MAILUOPS_TEST_SAFE_PATH MAILUOPS_TEST_ROOT
 
 # -----------------------------------------------------------------------------
 # Constants and mutable runtime state

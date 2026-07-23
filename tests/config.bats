@@ -37,7 +37,7 @@ teardown() { teardown_mailuops_env; }
 	chmod 1777 "$TEST_ROOT/sticky"
 	cp "$TEST_ROOT/config.json" "$TEST_ROOT/sticky/config.json"
 	chmod 600 "$TEST_ROOT/sticky/config.json"
-	run "$BATS_TEST_DIRNAME/../mailuops" --config "$TEST_ROOT/sticky/config.json" quota list
+	run mailuops_exec --config "$TEST_ROOT/sticky/config.json" quota list
 	assert_failure_status 77
 }
 

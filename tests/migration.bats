@@ -69,7 +69,7 @@ teardown() { teardown_mailuops_env; }
 }
 
 @test "confirmation mismatch does not invoke real sync" {
-	run bash -c 'printf "wrong@example.com\n" | "$0" --config "$1" migrate run info@example.com' "$BATS_TEST_DIRNAME/../mailuops" "$TEST_ROOT/config.json"
+	run mailuops_with_stdin $'wrong@example.com\n' --config "$TEST_ROOT/config.json" migrate run info@example.com
 	assert_failure_status 64
 	[ "$(grep -Fc -- 'imapsync' "$MAILUOPS_STUB_DIR/imapsync.argv")" -eq 2 ]
 }
@@ -87,7 +87,7 @@ teardown() { teardown_mailuops_env; }
 
 @test "second concurrent migration operation fails with 75" {
 	export IMAPSYNC_SLEEP=3
-	"$BATS_TEST_DIRNAME/../mailuops" --config "$TEST_ROOT/config.json" migrate probe info@example.com >"$TEST_ROOT/first.out" 2>"$TEST_ROOT/first.err" &
+	mailuops_background_cmd migrate probe info@example.com >"$TEST_ROOT/first.out" 2>"$TEST_ROOT/first.err" &
 	first_pid=$!
 	for _ in {1..30}; do
 		if [[ -s "$TEST_ROOT/run/migrate.lock" ]]; then
@@ -103,7 +103,7 @@ teardown() { teardown_mailuops_env; }
 
 @test "quota commands do not wait for migration lock" {
 	export IMAPSYNC_SLEEP=3
-	"$BATS_TEST_DIRNAME/../mailuops" --config "$TEST_ROOT/config.json" migrate probe info@example.com >"$TEST_ROOT/locked.out" 2>"$TEST_ROOT/locked.err" &
+	mailuops_background_cmd migrate probe info@example.com >"$TEST_ROOT/locked.out" 2>"$TEST_ROOT/locked.err" &
 	pid=$!
 	for _ in {1..30}; do
 		if [[ -s "$TEST_ROOT/run/migrate.lock" ]]; then
@@ -120,7 +120,7 @@ teardown() { teardown_mailuops_env; }
 @test "SIGINT during login is forwarded and removes wrapper FIFO" {
 	export IMAPSYNC_CHILD_MARKER="$TEST_ROOT/login-signal.marker"
 	export IMAPSYNC_CHILD_MARKER_PHASE=login
-	run timeout -s INT 2s "$BATS_TEST_DIRNAME/../mailuops" --config "$TEST_ROOT/config.json" migrate probe info@example.com
+	run mailuops_timeout INT 2s --config "$TEST_ROOT/config.json" migrate probe info@example.com
 	[[ $status -ne 0 ]]
 	for _ in {1..30}; do
 		if [[ -s "$IMAPSYNC_CHILD_MARKER" ]]; then
@@ -135,7 +135,7 @@ teardown() { teardown_mailuops_env; }
 @test "SIGTERM during folder plan is forwarded and removes wrapper FIFO" {
 	export IMAPSYNC_CHILD_MARKER="$TEST_ROOT/folders-signal.marker"
 	export IMAPSYNC_CHILD_MARKER_PHASE=folders
-	"$BATS_TEST_DIRNAME/../mailuops" --config "$TEST_ROOT/config.json" migrate probe info@example.com >"$TEST_ROOT/folders-signal.out" 2>"$TEST_ROOT/folders-signal.err" &
+	mailuops_background_cmd migrate probe info@example.com >"$TEST_ROOT/folders-signal.out" 2>"$TEST_ROOT/folders-signal.err" &
 	pid=$!
 	for _ in {1..80}; do
 		if [[ -e "$IMAPSYNC_CHILD_MARKER.ready" ]]; then
@@ -162,7 +162,7 @@ teardown() { teardown_mailuops_env; }
 
 @test "SIGTERM during sync is forwarded to imapsync process group" {
 	export IMAPSYNC_CHILD_MARKER="$TEST_ROOT/child-signal.marker"
-	"$BATS_TEST_DIRNAME/../mailuops" --config "$TEST_ROOT/config.json" migrate run info@example.com --yes >"$TEST_ROOT/signal.out" 2>"$TEST_ROOT/signal.err" &
+	mailuops_background_cmd migrate run info@example.com --yes >"$TEST_ROOT/signal.out" 2>"$TEST_ROOT/signal.err" &
 	pid=$!
 	for _ in {1..80}; do
 		if [[ -e "$IMAPSYNC_CHILD_MARKER.ready" ]]; then

@@ -18,6 +18,26 @@ teardown() { teardown_mailuops_env; }
 	[[ $output == "mailuops 1.0.0-rc1" ]]
 }
 
+@test "spoofed Bats-like environment cannot override root PATH" {
+	[[ ${EUID:-$(id -u)} -eq 0 ]] || skip "root PATH hardening is only active for root"
+	mkdir -p "$TEST_ROOT/fake-root/bin"
+	cat >"$TEST_ROOT/fake-root/bin/jq" <<EOF_FAKE_JQ
+#!/usr/bin/env bash
+printf 'fake jq executed\n' >"$TEST_ROOT/fake-jq.marker"
+exit 99
+EOF_FAKE_JQ
+	chmod 755 "$TEST_ROOT/fake-root/bin/jq"
+	run env \
+		BATS_TEST_FILENAME=/attacker/tests/spoof.bats \
+		BATS_TEST_NAME=spoof \
+		MAILUOPS_TEST_ROOT="$TEST_ROOT/fake-root" \
+		MAILUOPS_TEST_SAFE_PATH="$TEST_ROOT/fake-root/bin:/usr/sbin:/usr/bin:/sbin:/bin" \
+		PATH="$TEST_ROOT/fake-root/bin:$PATH" \
+		"$BATS_TEST_DIRNAME/../mailuops" --config "$TEST_ROOT/config.json" quota list
+	[[ $status -ne 99 ]]
+	[ ! -e "$TEST_ROOT/fake-jq.marker" ]
+}
+
 @test "0644 passfile is rejected before imapsync" {
 	chmod 644 "$TEST_ROOT/secrets/source.pass"
 	run mailuops_cmd migrate probe info@example.com

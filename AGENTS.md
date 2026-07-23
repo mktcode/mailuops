@@ -837,7 +837,7 @@ Add a static security test that inspects only the runtime executable, not docume
 
 ## Functional tests
 
-Use Bats and PATH-injected command stubs. Because the runtime resets PATH for root, tests may set an internal guarded `MAILUOPS_TEST_SAFE_PATH` only when Bats-specific guard variables are present. This hook exists solely to keep root-run tests offline and must not become a production command-path override. No test may require Docker, a live IMAP server, network access, or real credentials.
+Use Bats and PATH-injected command stubs. Because the runtime resets PATH for root, root-run tests must drop privileges or use a test-only wrapper outside the production executable; the production runtime must not contain an environment-controlled command-path override. No test may require Docker, a live IMAP server, network access, or real credentials.
 
 ### Docker stub
 
