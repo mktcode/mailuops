@@ -560,9 +560,7 @@ validate_executable_policy() {
 	local path=$1
 	is_absolute_path "$path" || fatal 65 "migration.imapsync_binary must be absolute: $path"
 	[[ -e $path ]] || fatal 69 "imapsync executable not found: $path"
-	[[ -f $path ]] || fatal 77 "imapsync path is not a regular file: $path"
-	[[ -x $path ]] || fatal 69 "imapsync path is not executable: $path"
-	local final mode
+	local final uid mode
 	final=$(readlink -f -- "$path") || fatal 77 "cannot canonicalize imapsync executable: $path"
 	if [[ -L $path ]]; then
 		case $final in
@@ -570,10 +568,15 @@ validate_executable_policy() {
 		*) fatal 77 "imapsync executable symlink target is outside administrator-controlled paths: $final" ;;
 		esac
 	fi
+	[[ -f $final ]] || fatal 77 "imapsync path is not a regular file: $final"
+	[[ -x $final ]] || fatal 69 "imapsync path is not executable: $final"
+	uid=$(owner_uid "$final")
+	[[ $uid -eq 0 || $uid -eq $EUID ]] || fatal 77 "imapsync executable $final is owned by uid $uid; required owner is root or uid $EUID"
 	mode=$(mode_octal "$final")
 	if (((8#$mode & 0022) != 0)); then
 		fatal 77 "imapsync executable $final is group- or world-writable"
 	fi
+	check_parent_dirs_private "$final"
 }
 
 resolve_mailu_container() {
@@ -609,25 +612,31 @@ resolve_mailu_container() {
 	[[ ${#candidates[@]} -ne 0 ]] || fatal 69 "no running Mailu IMAP container found; set mailu.imap_container explicitly"
 	[[ ${#candidates[@]} -eq 1 ]] || fatal 69 "multiple running Mailu IMAP containers match; set mailu.imap_container explicitly"
 	local selected=${candidates[0]}
-	local image
+	local image running line
 	IFS=$'\t' read -r MAILU_CONTAINER_ID MAILU_CONTAINER_NAME image <<<"$selected"
 	[[ -n $MAILU_CONTAINER_ID && -n $MAILU_CONTAINER_NAME ]] || fatal 70 "failed to parse Docker container selection"
+	if ! line=$(docker inspect --format '{{.Id}}	{{.Name}}	{{.State.Running}}' -- "$MAILU_CONTAINER_ID" 2>/dev/null); then
+		fatal 69 "selected Mailu IMAP container disappeared before validation: $MAILU_CONTAINER_ID"
+	fi
+	IFS=$'\t' read -r MAILU_CONTAINER_ID MAILU_CONTAINER_NAME running <<<"$line"
+	MAILU_CONTAINER_NAME=${MAILU_CONTAINER_NAME#/}
+	[[ $running == true ]] || fatal 69 "selected Mailu IMAP container is not running: $MAILU_CONTAINER_NAME"
 }
 
 check_doveadm() {
 	local help_output status=0
-	help_output=$(docker exec -- "$MAILU_CONTAINER_NAME" doveadm 2>&1) || status=$?
+	help_output=$(docker exec -- "$MAILU_CONTAINER_ID" doveadm 2>&1) || status=$?
 	if [[ $status -eq 127 || -z $help_output ]]; then
-		fatal 69 "doveadm is not available in container $MAILU_CONTAINER_NAME"
+		fatal 69 "doveadm is not available in container $MAILU_CONTAINER_NAME ($MAILU_CONTAINER_ID)"
 	fi
 	if ! grep -Eq '^[[:space:]]*quota[[:space:]]+' <<<"$help_output"; then
-		fatal 69 "doveadm does not advertise quota in container $MAILU_CONTAINER_NAME"
+		fatal 69 "doveadm does not advertise quota in container $MAILU_CONTAINER_NAME ($MAILU_CONTAINER_ID)"
 	fi
 }
 
 verify_mailbox() {
 	local mailbox=$1
-	local cmd=(docker exec -- "$MAILU_CONTAINER_NAME" doveadm user "$mailbox")
+	local cmd=(docker exec -- "$MAILU_CONTAINER_ID" doveadm user "$mailbox")
 	if [[ $VERBOSE -eq 1 ]]; then
 		"${cmd[@]}" >&2 || fatal 69 "destination mailbox is not available in Dovecot: $mailbox"
 	else
@@ -637,11 +646,11 @@ verify_mailbox() {
 
 fetch_quota_single_json() {
 	local mailbox=$1
-	docker exec -- "$MAILU_CONTAINER_NAME" doveadm -f json quota get -u "$mailbox" 2>&1
+	docker exec -- "$MAILU_CONTAINER_ID" doveadm -f json quota get -u "$mailbox" 2>&1
 }
 
 fetch_quota_all_json() {
-	docker exec -- "$MAILU_CONTAINER_NAME" doveadm -f json quota get -A 2>&1
+	docker exec -- "$MAILU_CONTAINER_ID" doveadm -f json quota get -A 2>&1
 }
 
 normalize_quota_json() {
@@ -650,7 +659,7 @@ normalize_quota_json() {
 	local filter
 	filter=$(
 		cat <<'JQ'
-    def field($names): first([. as $o | $names[] | $o[.]? | select(. != null)][])?;
+    def field($names): [. as $o | $names[] | $o[.]? | select(. != null)] | if length == 0 then null else .[0] end;
     def int_or_error($v; $name):
       if ($v|type) == "number" and ($v|floor) == $v then $v
       elif ($v|type) == "string" and ($v|test("^[0-9]+$")) then ($v|tonumber)
@@ -662,17 +671,19 @@ normalize_quota_json() {
       {
         mailbox: (field(["username","user","mailbox"]) // $single),
         root: field(["quota_name","quota_root","root","name","Quota name"]),
-        type: (field(["quota_type","type","Type"]) | tostring | ascii_upcase),
+        type: (field(["quota_type","type","Type"]) as $t | if $t == null then null else ($t | tostring | ascii_upcase) end),
         value: field(["value","Value"]),
         limit: field(["limit","Limit"])
       };
     if (type != "array") then error("quota output is not a JSON array") else . end
     | map(if type == "object" then row else error("quota row is not an object") end)
+    | if ($single != "") then map(.mailbox = $single) else . end
+    | if any(.mailbox == null or .mailbox == "" or .root == null or .root == "" or .type == null or .value == null) then error("quota row is missing required fields") else . end
+    | if any(.type != "STORAGE" and .type != "MESSAGE") then error("unrecognized quota row type") else . end
+    | map(.value_int = int_or_error(.value; "quota value") | .limit_int = limit_or_null(.limit; "quota limit"))
+    | if any(.value_int < 0) then error("negative quota usage") else . end
     | map(select(.root == $root))
     | if length == 0 then error("configured quota root not found") else . end
-    | if ($single != "") then map(.mailbox = $single) else . end
-    | if any(.mailbox == null or .mailbox == "" or .root == null or .type == null or .value == null) then error("quota row is missing required fields") else . end
-    | if any(.type != "STORAGE" and .type != "MESSAGE") then error("unrecognized quota row type") else . end
     | group_by(.mailbox)
     | map(
         . as $rows
@@ -681,13 +692,11 @@ normalize_quota_json() {
         | ([$rows[] | select(.type == "MESSAGE")]) as $message_rows
         | if ($storage_rows|length) != 1 then error("expected exactly one STORAGE row for " + $mailbox) else . end
         | if ($message_rows|length) > 1 then error("duplicate MESSAGE row for " + $mailbox) else . end
-        | ($storage_rows[0].value | int_or_error(.; "storage value")) as $used_kib
-        | if $used_kib < 0 then error("negative storage usage") else . end
-        | ($storage_rows[0].limit | limit_or_null(.; "storage limit")) as $limit_kib
+        | ($storage_rows[0].value_int) as $used_kib
+        | ($storage_rows[0].limit_int) as $limit_kib
         | ($message_rows[0]? // null) as $mr
-        | (if $mr == null then null else ($mr.value | int_or_error(.; "message value")) end) as $messages_used
-        | if ($messages_used != null and $messages_used < 0) then error("negative message usage") else . end
-        | (if $mr == null then null else ($mr.limit | limit_or_null(.; "message limit")) end) as $messages_limit
+        | (if $mr == null then null else $mr.value_int end) as $messages_used
+        | (if $mr == null then null else $mr.limit_int end) as $messages_limit
         | {
             mailbox: $mailbox,
             quota_root: $root,
@@ -877,14 +886,16 @@ validate_profile() {
 	local filter
 	filter=$(
 		cat <<'JQ'
-    def keys_exact($allowed): type == "object" and ((keys_unsorted - $allowed) | length == 0);
+    def keys_allowed($allowed): type == "object" and ((keys_unsorted - $allowed) | length == 0);
+    def has_required($required): (($required - keys_unsorted) | length) == 0;
     def clean_string: type == "string" and length > 0 and (test("[\u0000-\u001f]")|not);
     type == "object"
-    and keys_exact(["schema_version","address","source","destination","folders"])
+    and keys_allowed(["schema_version","address","source","destination","folders"])
+    and has_required(["schema_version","address","source","destination"])
     and (.schema_version == 1)
     and (.address == $address)
-    and (.source | keys_exact(["host","port","username","password_file","ca_file"]))
-    and (.destination | keys_exact(["username","password_file"]))
+    and (.source | keys_allowed(["host","port","username","password_file","ca_file"]) and has_required(["host","port","username","password_file"]))
+    and (.destination | keys_allowed(["username","password_file"]) and has_required(["username","password_file"]))
     and (.source.host | clean_string)
     and (.source.port == 993)
     and (.source.username | clean_string)
@@ -892,12 +903,13 @@ validate_profile() {
     and ((.source.ca_file == null) or (.source.ca_file | type == "string" and startswith("/")))
     and (.destination.username | clean_string)
     and (.destination.password_file | type == "string" and startswith("/"))
-    and ((.folders == null) or (
-      .folders | keys_exact(["automap","map"])
+    and (((has("folders") | not) or (.folders == null)) or (
+      .folders | keys_allowed(["automap","map"])
+      and has_required(["automap","map"])
       and (.automap | type == "boolean")
       and (.map | type == "array")
       and (.map | length <= 100)
-      and all(.map[]; keys_exact(["from","to"]) and (.from | type == "string" and length > 0 and (test("[\u0000-\u001f=]")|not)) and (.to | type == "string" and length > 0 and (test("[\u0000-\u001f=]")|not)))
+      and all(.map[]; keys_allowed(["from","to"]) and has_required(["from","to"]) and (.from | type == "string" and length > 0 and (test("[\u0000-\u001f=]")|not)) and (.to | type == "string" and length > 0 and (test("[\u0000-\u001f=]")|not)))
       and ((.map | map(.from) | unique | length) == (.map | length))
       and ((.map | map(.from + "=" + .to) | unique | length) == (.map | length))
     ))
@@ -930,6 +942,7 @@ JQ
 	validate_hostname "$SRC_HOST" "profile source"
 	validate_no_crlf "$SRC_USERNAME" "source username"
 	validate_no_crlf "$DST_USERNAME" "destination username"
+	[[ $DST_USERNAME == "$address" ]] || fatal 65 "destination username $DST_USERNAME in profile $file must exactly equal address $address"
 	if [[ ${SRC_HOST,,} == "${DEST_HOST,,}" && $SRC_PORT == "$DEST_PORT" && $SRC_USERNAME == "$DST_USERNAME" ]]; then
 		fatal 65 "source and destination endpoints are identical for $address"
 	fi
@@ -1123,16 +1136,15 @@ run_imapsync_phase() {
 	chmod 0600 -- "$console_log"
 	log_wrapper "phase $phase start: $(redacted_command_line IMAPSYNC_CMD)"
 	printf '== %s ==\n' "$*"
-	local status tee_pid tee_in tee_in_orig tee_out_orig
-	coproc TEE_PROC { tee -- "$console_log"; }
-	tee_pid=$TEE_PROC_PID
-	tee_in_orig=${TEE_PROC[1]}
-	tee_out_orig=${TEE_PROC[0]}
-	exec {tee_in}>&"$tee_in_orig"
-	exec {tee_in_orig}>&-
+	local status tee_status tee_pid fifo
+	fifo="$OP_RUNTIME_DIR/$phase.tee.fifo"
+	rm -f -- "$fifo"
+	mkfifo -- "$fifo" || fatal 73 "cannot create phase output FIFO: $fifo"
+	tee -- "$console_log" <"$fifo" &
+	tee_pid=$!
 	set +e
 	set -m
-	"${IMAPSYNC_CMD[@]}" >&"$tee_in" 2>&1 &
+	"${IMAPSYNC_CMD[@]}" >"$fifo" 2>&1 &
 	ACTIVE_CHILD=$!
 	ACTIVE_PGID=$ACTIVE_CHILD
 	wait "$ACTIVE_CHILD"
@@ -1140,10 +1152,13 @@ run_imapsync_phase() {
 	ACTIVE_CHILD=""
 	ACTIVE_PGID=""
 	set +m
-	exec {tee_in}>&-
 	wait "$tee_pid"
-	exec {tee_out_orig}<&-
+	tee_status=$?
 	set -e
+	rm -f -- "$fifo"
+	if [[ $tee_status -ne 0 ]]; then
+		log_wrapper "phase $phase tee status: $tee_status"
+	fi
 	log_wrapper "phase $phase status: $status"
 	return "$status"
 }

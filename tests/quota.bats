@@ -58,3 +58,9 @@ teardown() { teardown_mailuops_env; }
 	run mailuops_cmd quota get info@example.com --json
 	assert_failure_status 65
 }
+
+@test "quota parser rejects malformed extra rows before root filtering" {
+	export DOCKER_QUOTA_SINGLE_FILE="$BATS_TEST_DIRNAME/fixtures/quota-malformed-extra-row.json"
+	run mailuops_cmd quota get info@example.com --json
+	assert_failure_status 65
+}

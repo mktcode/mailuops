@@ -18,6 +18,35 @@ teardown() { teardown_mailuops_env; }
 	[ "$(grep -Fc -- 'imapsync' "$MAILUOPS_STUB_DIR/imapsync.argv")" -eq 4 ]
 }
 
+@test "profile destination username must match selected address" {
+	jq '.destination.username = "other@example.com"' "$TEST_ROOT/profiles/profile.json" >"$TEST_ROOT/profiles/profile.tmp"
+	mv "$TEST_ROOT/profiles/profile.tmp" "$TEST_ROOT/profiles/profile.json"
+	chmod 600 "$TEST_ROOT/profiles/profile.json"
+	run mailuops_cmd migrate probe info@example.com
+	assert_failure_status 65
+	assert_output_contains "destination username"
+	[ ! -e "$MAILUOPS_STUB_DIR/imapsync.argv" ]
+}
+
+@test "profile may omit source ca_file and folders" {
+	jq 'del(.source.ca_file, .folders)' "$TEST_ROOT/profiles/profile.json" >"$TEST_ROOT/profiles/profile.tmp"
+	mv "$TEST_ROOT/profiles/profile.tmp" "$TEST_ROOT/profiles/profile.json"
+	chmod 600 "$TEST_ROOT/profiles/profile.json"
+	run mailuops_cmd migrate probe info@example.com
+	assert_success
+	grep -F -- "SSL_ca_file=$TEST_ROOT/ca.pem" "$MAILUOPS_STUB_DIR/imapsync.argv"
+	grep -F -- '--automap' "$MAILUOPS_STUB_DIR/imapsync.argv"
+	! grep -F -- 'Sent\ Items=Sent' "$MAILUOPS_STUB_DIR/imapsync.argv"
+}
+
+@test "imapsync output streams through tee without blocking on noisy output" {
+	export IMAPSYNC_OUTPUT_LINES=3000
+	run mailuops_cmd migrate probe info@example.com
+	assert_success
+	assert_output_contains "imapsync noisy line 02999"
+	grep -R -F -- "imapsync noisy line 02999" "$TEST_ROOT/log"
+}
+
 @test "real sync failure status is preserved" {
 	export IMAPSYNC_STATUS_SYNC=113
 	run mailuops_cmd migrate run info@example.com --yes

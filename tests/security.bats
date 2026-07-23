@@ -42,6 +42,20 @@ teardown() { teardown_mailuops_env; }
 	[ ! -e "$MAILUOPS_STUB_DIR/imapsync.argv" ]
 }
 
+@test "group writable imapsync executable is rejected before credentials are used" {
+	chmod 775 "$TEST_ROOT/bin/imapsync"
+	run mailuops_cmd migrate probe info@example.com
+	assert_failure_status 77
+	[ ! -e "$MAILUOPS_STUB_DIR/imapsync.argv" ]
+}
+
+@test "docker exec uses discovered container ID, not mutable name" {
+	run mailuops_cmd quota get info@example.com
+	assert_success
+	grep -F -- $'docker\texec\t--\tcid123\t' "$MAILUOPS_STUB_DIR/docker.argv"
+	! grep -F -- $'docker\texec\t--\tmailu-imap-1\t' "$MAILUOPS_STUB_DIR/docker.argv"
+}
+
 @test "generated imapsync argv forces TLS verification and no-expunge" {
 	run mailuops_cmd migrate probe info@example.com
 	assert_success
