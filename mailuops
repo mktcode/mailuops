@@ -3,6 +3,10 @@ set -Eeuo pipefail
 umask 077
 export LC_ALL=C
 
+# -----------------------------------------------------------------------------
+# Constants and mutable runtime state
+# -----------------------------------------------------------------------------
+
 readonly PROGRAM="mailuops"
 readonly VERSION="mailuops 1.0.0-rc1"
 readonly DEFAULT_CONFIG="/etc/mailuops/config.json"
@@ -55,6 +59,10 @@ ACTIVE_CHILD=""
 ACTIVE_PGID=""
 ACTIVE_TEE=""
 ACTIVE_FIFO=""
+
+# -----------------------------------------------------------------------------
+# Diagnostics, cleanup, and signal handling
+# -----------------------------------------------------------------------------
 
 fatal() {
 	local status=$1
@@ -149,6 +157,10 @@ trap cleanup EXIT
 trap 'handle_signal INT' INT
 trap 'handle_signal TERM' TERM
 trap 'handle_signal HUP' HUP
+
+# -----------------------------------------------------------------------------
+# CLI parsing
+# -----------------------------------------------------------------------------
 
 parse_cli() {
 	local seen_config=0
@@ -307,6 +319,10 @@ validate_address() {
 	[[ $domain_part =~ ^[A-Za-z0-9.-]+$ ]] || fatal 64 "address domain contains unsupported characters"
 }
 
+# -----------------------------------------------------------------------------
+# Dependency and path primitives
+# -----------------------------------------------------------------------------
+
 require_command() {
 	local name=$1
 	command -v -- "$name" >/dev/null 2>&1 || fatal 69 "required command not found in PATH: $name"
@@ -366,22 +382,6 @@ check_parent_dirs_private() {
 	done
 }
 
-validate_regular_owned_file() {
-	local path=$1
-	local object=$2
-	is_absolute_path "$path" || fatal 65 "$object path is not absolute: $path"
-	[[ -e $path ]] || fatal 66 "$object file not found: $path"
-	[[ ! -L $path ]] || fatal 77 "$object file is a symlink: $path"
-	[[ -f $path ]] || fatal 77 "$object file is not a regular file: $path"
-	local uid mode
-	uid=$(owner_uid "$path")
-	[[ $uid -eq $EUID ]] || fatal 77 "$object file $path is owned by uid $uid; required uid is $EUID"
-	mode=$(mode_octal "$path")
-	if (((8#$mode & 0022) != 0)); then
-		fatal 77 "$object file $path is group- or world-writable"
-	fi
-}
-
 validate_hostname() {
 	local host=$1
 	local what=$2
@@ -405,6 +405,10 @@ jq_expect() {
 		fatal 65 "$msg: $file"
 	fi
 }
+
+# -----------------------------------------------------------------------------
+# Global configuration loading and validation
+# -----------------------------------------------------------------------------
 
 load_global_config() {
 	local file=$1
@@ -487,6 +491,10 @@ ensure_private_dir() {
 	fi
 }
 
+# -----------------------------------------------------------------------------
+# Trusted file, CA, secret, and executable validation
+# -----------------------------------------------------------------------------
+
 validate_ca_file() {
 	local path=$1
 	local what=$2
@@ -566,6 +574,11 @@ validate_sensitive_file() {
 	unset rest
 }
 
+validate_profile_passfiles() {
+	validate_sensitive_file "$SRC_PASSFILE" "source"
+	validate_sensitive_file "$DST_PASSFILE" "destination"
+}
+
 validate_executable_policy() {
 	local path=$1
 	is_absolute_path "$path" || fatal 65 "migration.imapsync_binary must be absolute: $path"
@@ -585,6 +598,10 @@ validate_executable_policy() {
 	check_parent_dirs_private "$final"
 	IMAPSYNC_BINARY=$final
 }
+
+# -----------------------------------------------------------------------------
+# Mailu Docker container discovery and Dovecot access
+# -----------------------------------------------------------------------------
 
 resolve_mailu_container() {
 	local candidates=()
@@ -659,6 +676,10 @@ fetch_quota_single_json() {
 fetch_quota_all_json() {
 	docker exec -- "$MAILU_CONTAINER_ID" doveadm -f json quota get -A 2>&1
 }
+
+# -----------------------------------------------------------------------------
+# Dovecot quota normalization and rendering
+# -----------------------------------------------------------------------------
 
 normalize_quota_json() {
 	local raw=$1
@@ -806,6 +827,10 @@ render_quota_human_list() {
 	done
 }
 
+# -----------------------------------------------------------------------------
+# Quota commands
+# -----------------------------------------------------------------------------
+
 quota_get() {
 	require_quota_dependencies
 	load_global_config "$CONFIG_PATH"
@@ -844,6 +869,10 @@ quota_list() {
 		render_quota_human_list "$normalized"
 	fi
 }
+
+# -----------------------------------------------------------------------------
+# Migration profile discovery and validation
+# -----------------------------------------------------------------------------
 
 validate_profile_file_policy() {
 	local file=$1
@@ -955,6 +984,10 @@ JQ
 	fi
 }
 
+# -----------------------------------------------------------------------------
+# Migration lock, operation context, and wrapper logging
+# -----------------------------------------------------------------------------
+
 acquire_migration_lock() {
 	ensure_private_dir "$RUNTIME_DIR" "runtime"
 	local lock_path="$RUNTIME_DIR/migrate.lock"
@@ -1017,6 +1050,10 @@ log_wrapper() {
 	[[ -n ${WRAPPER_LOG:-} ]] || return 0
 	printf '%s %s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$msg" >>"$WRAPPER_LOG"
 }
+
+# -----------------------------------------------------------------------------
+# imapsync capability checks, argv construction, and phase execution
+# -----------------------------------------------------------------------------
 
 check_imapsync_capabilities() {
 	validate_executable_policy "$IMAPSYNC_BINARY"
@@ -1120,8 +1157,7 @@ redacted_command_line() {
 run_imapsync_phase() {
 	local phase=$1
 	shift
-	validate_sensitive_file "$SRC_PASSFILE" "source"
-	validate_sensitive_file "$DST_PASSFILE" "destination"
+	validate_profile_passfiles
 	build_imapsync_base_args "$phase"
 	case $phase in
 	01-login | 03-login)
@@ -1174,6 +1210,22 @@ run_imapsync_phase() {
 	return "$status"
 }
 
+run_required_imapsync_phase() {
+	local phase=$1
+	local label=$2
+	local status
+	if run_imapsync_phase "$phase" "$label"; then
+		return 0
+	else
+		status=$?
+		exit "$status"
+	fi
+}
+
+# -----------------------------------------------------------------------------
+# Migration workflows
+# -----------------------------------------------------------------------------
+
 migration_preflight() {
 	local locked_runtime_dir=${LOCKED_RUNTIME_DIR:-}
 	load_global_config "$CONFIG_PATH"
@@ -1185,8 +1237,7 @@ migration_preflight() {
 	if [[ -z ${WRAPPER_LOG:-} ]]; then
 		create_operation_context
 	fi
-	validate_sensitive_file "$SRC_PASSFILE" "source"
-	validate_sensitive_file "$DST_PASSFILE" "destination"
+	validate_profile_passfiles
 	validate_ca_file "$SRC_CA_FILE" "source"
 	validate_ca_file "$DEST_CA_FILE" "destination"
 	check_imapsync_capabilities
@@ -1221,19 +1272,8 @@ migration_probe() {
 	load_global_config "$CONFIG_PATH"
 	acquire_migration_lock
 	migration_preflight
-	local st
-	if run_imapsync_phase 01-login "login test"; then
-		:
-	else
-		st=$?
-		exit "$st"
-	fi
-	if run_imapsync_phase 02-folders "dry folder plan"; then
-		:
-	else
-		st=$?
-		exit "$st"
-	fi
+	run_required_imapsync_phase 01-login "login test"
+	run_required_imapsync_phase 02-folders "dry folder plan"
 	printf 'Migration probe: %s\n' "$ADDRESS"
 	printf 'Source:      %s @ %s:%s (verified IMAPS)\n' "$SRC_USERNAME" "$SRC_HOST" "$SRC_PORT"
 	printf 'Destination: %s @ %s:%s (verified IMAPS)\n' "$DST_USERNAME" "$DEST_HOST" "$DEST_PORT"
@@ -1264,37 +1304,15 @@ migration_run() {
 	load_global_config "$CONFIG_PATH"
 	acquire_migration_lock
 	migration_preflight
-	local st
-	if run_imapsync_phase 01-login "login test"; then
-		:
-	else
-		st=$?
-		exit "$st"
-	fi
-	if run_imapsync_phase 02-folders "dry folder plan"; then
-		:
-	else
-		st=$?
-		exit "$st"
-	fi
+	run_required_imapsync_phase 01-login "login test"
+	run_required_imapsync_phase 02-folders "dry folder plan"
 	printf 'Migration run: %s\n' "$ADDRESS"
 	printf 'Source:      %s @ %s:%s (verified IMAPS)\n' "$SRC_USERNAME" "$SRC_HOST" "$SRC_PORT"
 	printf 'Destination: %s @ %s:%s (verified IMAPS)\n' "$DST_USERNAME" "$DEST_HOST" "$DEST_PORT"
 	confirm_exact_address
-	validate_sensitive_file "$SRC_PASSFILE" "source"
-	validate_sensitive_file "$DST_PASSFILE" "destination"
-	if run_imapsync_phase 03-login "repeated login test"; then
-		:
-	else
-		st=$?
-		exit "$st"
-	fi
-	if run_imapsync_phase 04-sync "additive transfer"; then
-		:
-	else
-		st=$?
-		exit "$st"
-	fi
+	validate_profile_passfiles
+	run_required_imapsync_phase 03-login "repeated login test"
+	run_required_imapsync_phase 04-sync "additive transfer"
 	local raw normalized
 	if raw=$(fetch_quota_single_json "$ADDRESS"); then
 		if normalized=$(normalize_quota_json "$raw" "$ADDRESS"); then
@@ -1310,6 +1328,10 @@ migration_run() {
 	printf 'Logs: %s/\n' "$OP_LOG_DIR"
 	log_wrapper "operation successful"
 }
+
+# -----------------------------------------------------------------------------
+# Entrypoint
+# -----------------------------------------------------------------------------
 
 main() {
 	if [[ ${BASH_XTRACEFD:-} ]]; then
