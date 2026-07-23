@@ -66,18 +66,14 @@ exec)
 	case "${1:-} ${2:-} ${3:-} ${4:-} ${5:-}" in
 	'doveadm    ')
 		[[ ${DOCKER_DOVEADM_MISSING:-0} == 1 ]] && exit 127
-		[[ ${DOCKER_DOVEADM_QUOTA_MISSING:-0} == 1 ]] && printf 'usage: doveadm ...\n' && exit 0
+		[[ ${DOCKER_DOVEADM_NO_OUTPUT:-0} == 1 ]] && exit "${DOCKER_DOVEADM_USAGE_STATUS:-0}"
+		[[ ${DOCKER_DOVEADM_QUOTA_GET_MISSING:-0} == 1 ]] && printf 'usage: doveadm ...\n  quota       recalc\n' && exit "${DOCKER_DOVEADM_USAGE_STATUS:-0}"
 		printf 'usage: doveadm ...\n  quota       get|recalc\n'
+		exit "${DOCKER_DOVEADM_USAGE_STATUS:-0}"
 		;;
-	'doveadm help   ')
-		[[ ${DOCKER_DOVEADM_MISSING:-0} == 1 ]] && exit 127
-		[[ ${DOCKER_DOVEADM_HELP_FAIL:-0} == 1 ]] && printf 'usage unavailable\n' && exit 64
-		printf 'usage: doveadm ...\n  quota       get|recalc\n'
-		;;
-	'doveadm help quota  ')
-		[[ ${DOCKER_DOVEADM_QUOTA_MISSING:-0} == 1 ]] && exit 89
-		[[ ${DOCKER_DOVEADM_QUOTA_GET_MISSING:-0} == 1 ]] && printf 'quota recalc\n' && exit 0
-		printf 'quota get [-u user|-A]\n'
+	'doveadm help   ' | 'doveadm help quota  ')
+		printf 'unexpected doveadm help invocation in stub\n' >&2
+		exit 99
 		;;
 	doveadm\ user*)
 		[[ ${DOCKER_USER_FAIL:-0} == 1 ]] && exit 67

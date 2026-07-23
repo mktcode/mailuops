@@ -156,18 +156,26 @@ EOF_FAKE_JQ
 	unset IMAPSYNC_CHMOD_CA_AFTER_LOGIN
 }
 
-@test "doveadm help failures fail closed before quota parsing" {
-	export DOCKER_DOVEADM_HELP_FAIL=1
+@test "doveadm usage may advertise quota get with nonzero status" {
+	export DOCKER_DOVEADM_USAGE_STATUS=64
 	run mailuops_cmd quota get info@example.com
-	assert_failure_status 69
-	unset DOCKER_DOVEADM_HELP_FAIL
+	assert_success
+	! grep -F -- $'doveadm\thelp' "$MAILUOPS_STUB_DIR/docker.argv"
+	unset DOCKER_DOVEADM_USAGE_STATUS
 }
 
-@test "doveadm quota help must advertise quota get" {
+@test "doveadm usage must advertise quota get" {
 	export DOCKER_DOVEADM_QUOTA_GET_MISSING=1
 	run mailuops_cmd quota get info@example.com
 	assert_failure_status 69
 	unset DOCKER_DOVEADM_QUOTA_GET_MISSING
+}
+
+@test "doveadm empty usage output fails closed before quota parsing" {
+	export DOCKER_DOVEADM_NO_OUTPUT=1
+	run mailuops_cmd quota get info@example.com
+	assert_failure_status 69
+	unset DOCKER_DOVEADM_NO_OUTPUT
 }
 
 @test "group writable imapsync executable is rejected before credentials are used" {
