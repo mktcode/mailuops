@@ -26,6 +26,13 @@ for arg in "$@"; do
 	--justfolders) phase=folders ;;
 	esac
 done
+if [[ ${IMAPSYNC_CHMOD_CA_AFTER_LOGIN:-0} == 1 && $phase == login ]]; then
+	for arg in "$@"; do
+		case $arg in
+		SSL_ca_file=*) chmod 666 -- "${arg#SSL_ca_file=}" ;;
+		esac
+	done
+fi
 printf 'imapsync stub phase %s\n' "$phase"
 if [[ -n ${IMAPSYNC_OUTPUT_LINES:-} ]]; then
 	for ((i = 0; i < IMAPSYNC_OUTPUT_LINES; i++)); do

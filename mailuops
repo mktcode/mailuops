@@ -1,9 +1,12 @@
-#!/usr/bin/env -S bash -p
+#!/usr/bin/bash -p
 set -Eeuo pipefail
 set +x
 umask 077
 unset BASH_ENV ENV BASH_XTRACEFD
 export LC_ALL=C
+if [[ ${EUID:-$(id -u)} -eq 0 ]]; then
+	export PATH=/usr/sbin:/usr/bin:/sbin:/bin
+fi
 
 # -----------------------------------------------------------------------------
 # Constants and mutable runtime state
@@ -399,6 +402,22 @@ validate_no_crlf() {
 	[[ $value != *$'\r'* && $value != *$'\n'* ]] || fatal 65 "$what contains CR or LF"
 }
 
+reject_symlink_path_components() {
+	local path=$1
+	local what=$2
+	is_absolute_path "$path" || fatal 65 "$what path is not absolute: $path"
+	local remainder=${path#/}
+	local current=""
+	local component
+	local -a components=()
+	IFS=/ read -r -a components <<<"$remainder"
+	for component in "${components[@]}"; do
+		[[ -n $component ]] || continue
+		current="$current/$component"
+		[[ ! -L $current ]] || fatal 77 "$what path contains a symlink component: $current"
+	done
+}
+
 jq_expect() {
 	local filter=$1
 	local file=$2
@@ -502,15 +521,23 @@ validate_ca_file() {
 	local path=$1
 	local what=$2
 	is_absolute_path "$path" || fatal 65 "$what CA file path is not absolute: $path"
+	check_parent_dirs_private "$path"
 	[[ -e $path ]] || fatal 69 "$what CA file not found: $path"
-	[[ -f $path ]] || fatal 77 "$what CA file is not a regular file: $path"
-	[[ -r $path ]] || fatal 77 "$what CA file is not readable: $path"
-	local mode size
-	mode=$(mode_octal "$path")
+	reject_symlink_path_components "$path" "$what CA file"
+	local canon
+	canon=$(readlink -f -- "$path") || fatal 77 "cannot canonicalize $what CA file: $path"
+	[[ -f $canon ]] || fatal 77 "$what CA file is not a regular file: $path"
+	[[ -r $canon ]] || fatal 77 "$what CA file is not readable: $path"
+	local mode size uid
+	uid=$(owner_uid "$canon")
+	if [[ $uid -ne 0 && $uid -ne $EUID ]]; then
+		fatal 77 "$what CA file $path is owned by uid $uid; required owner is root or uid $EUID"
+	fi
+	mode=$(mode_octal "$canon")
 	if (((8#$mode & 0022) != 0)); then
 		fatal 77 "$what CA file $path is group- or world-writable"
 	fi
-	size=$(stat -c '%s' -- "$path")
+	size=$(stat -c '%s' -- "$canon")
 	[[ $size -gt 0 ]] || fatal 69 "$what CA file is empty: $path"
 }
 
@@ -652,13 +679,18 @@ resolve_mailu_container() {
 }
 
 check_doveadm() {
-	local help_output status=0
-	help_output=$(docker exec -- "$MAILU_CONTAINER_ID" doveadm 2>&1) || status=$?
-	if [[ $status -eq 127 || -z $help_output ]]; then
+	local help_output quota_help
+	if ! help_output=$(docker exec -- "$MAILU_CONTAINER_ID" doveadm help 2>&1); then
 		fatal 69 "doveadm is not available in container $MAILU_CONTAINER_NAME ($MAILU_CONTAINER_ID)"
 	fi
 	if ! grep -Eq '^[[:space:]]*quota[[:space:]]+' <<<"$help_output"; then
 		fatal 69 "doveadm does not advertise quota in container $MAILU_CONTAINER_NAME ($MAILU_CONTAINER_ID)"
+	fi
+	if ! quota_help=$(docker exec -- "$MAILU_CONTAINER_ID" doveadm help quota 2>&1); then
+		fatal 69 "doveadm quota help is not available in container $MAILU_CONTAINER_NAME ($MAILU_CONTAINER_ID)"
+	fi
+	if ! grep -Eq '(^|[[:space:]])get([[:space:]|,]|$)' <<<"$quota_help"; then
+		fatal 69 "doveadm does not advertise quota get in container $MAILU_CONTAINER_NAME ($MAILU_CONTAINER_ID)"
 	fi
 }
 
@@ -1163,6 +1195,8 @@ run_imapsync_phase() {
 	local phase=$1
 	shift
 	validate_profile_passfiles
+	validate_ca_file "$SRC_CA_FILE" "source"
+	validate_ca_file "$DEST_CA_FILE" "destination"
 	build_imapsync_base_args "$phase"
 	case $phase in
 	01-login | 03-login)

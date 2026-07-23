@@ -56,6 +56,52 @@ teardown() { teardown_mailuops_env; }
 	[ ! -e "$MAILUOPS_STUB_DIR/imapsync.argv" ]
 }
 
+@test "symlink CA file is rejected before imapsync" {
+	mv "$TEST_ROOT/ca.pem" "$TEST_ROOT/real-ca.pem"
+	ln -s "$TEST_ROOT/real-ca.pem" "$TEST_ROOT/ca.pem"
+	run mailuops_cmd migrate probe info@example.com
+	assert_failure_status 77
+	[ ! -e "$MAILUOPS_STUB_DIR/imapsync.argv" ]
+}
+
+@test "world writable CA parent directory is rejected before imapsync" {
+	mkdir "$TEST_ROOT/ca-parent"
+	chmod 777 "$TEST_ROOT/ca-parent"
+	printf 'CA fixture\n' >"$TEST_ROOT/ca-parent/ca.pem"
+	chmod 644 "$TEST_ROOT/ca-parent/ca.pem"
+	jq --arg p "$TEST_ROOT/ca-parent/ca.pem" '.migration.destination.ca_file = $p | .migration.source_default_ca_file = $p' "$TEST_ROOT/config.json" >"$TEST_ROOT/config.tmp"
+	mv "$TEST_ROOT/config.tmp" "$TEST_ROOT/config.json"
+	chmod 600 "$TEST_ROOT/config.json"
+	jq --arg p "$TEST_ROOT/ca-parent/ca.pem" '.source.ca_file = $p' "$TEST_ROOT/profiles/profile.json" >"$TEST_ROOT/profiles/profile.tmp"
+	mv "$TEST_ROOT/profiles/profile.tmp" "$TEST_ROOT/profiles/profile.json"
+	chmod 600 "$TEST_ROOT/profiles/profile.json"
+	run mailuops_cmd migrate probe info@example.com
+	assert_failure_status 77
+	[ ! -e "$MAILUOPS_STUB_DIR/imapsync.argv" ]
+}
+
+@test "CA files are revalidated before each imapsync phase" {
+	export IMAPSYNC_CHMOD_CA_AFTER_LOGIN=1
+	run mailuops_cmd migrate probe info@example.com
+	assert_failure_status 77
+	[ "$(grep -Fc -- 'imapsync' "$MAILUOPS_STUB_DIR/imapsync.argv")" -eq 1 ]
+	unset IMAPSYNC_CHMOD_CA_AFTER_LOGIN
+}
+
+@test "doveadm help failures fail closed before quota parsing" {
+	export DOCKER_DOVEADM_HELP_FAIL=1
+	run mailuops_cmd quota get info@example.com
+	assert_failure_status 69
+	unset DOCKER_DOVEADM_HELP_FAIL
+}
+
+@test "doveadm quota help must advertise quota get" {
+	export DOCKER_DOVEADM_QUOTA_GET_MISSING=1
+	run mailuops_cmd quota get info@example.com
+	assert_failure_status 69
+	unset DOCKER_DOVEADM_QUOTA_GET_MISSING
+}
+
 @test "group writable imapsync executable is rejected before credentials are used" {
 	chmod 775 "$TEST_ROOT/bin/imapsync"
 	run mailuops_cmd migrate probe info@example.com
