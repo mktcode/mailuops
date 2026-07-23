@@ -53,6 +53,8 @@ WRAPPER_LOG=""
 INTERRUPTED=0
 ACTIVE_CHILD=""
 ACTIVE_PGID=""
+ACTIVE_TEE=""
+ACTIVE_FIFO=""
 
 fatal() {
 	local status=$1
@@ -131,6 +133,13 @@ handle_signal() {
 	if [[ -n ${ACTIVE_CHILD:-} ]]; then
 		kill -"$sig" "$ACTIVE_CHILD" 2>/dev/null || true
 		wait "$ACTIVE_CHILD" 2>/dev/null || true
+	fi
+	if [[ -n ${ACTIVE_TEE:-} ]]; then
+		kill -"$sig" "$ACTIVE_TEE" 2>/dev/null || true
+		wait "$ACTIVE_TEE" 2>/dev/null || true
+	fi
+	if [[ -n ${ACTIVE_FIFO:-} ]]; then
+		rm -f -- "$ACTIVE_FIFO" 2>/dev/null || true
 	fi
 	exit "$status"
 }
@@ -321,6 +330,7 @@ require_migration_dependencies() {
 	require_command sha256sum
 	require_command date
 	require_command mktemp
+	require_command mkfifo
 	require_command flock
 }
 
@@ -345,7 +355,7 @@ check_parent_dirs_private() {
 			local mode uid
 			mode=$(mode_octal "$dir")
 			uid=$(owner_uid "$dir")
-			if (((8#$mode & 0022) != 0 && (8#$mode & 01000) == 0)); then
+			if (((8#$mode & 0022) != 0)); then
 				fatal 77 "directory $dir is group- or world-writable; make configuration paths private"
 			fi
 			if [[ $uid -ne $EUID && $uid -ne 0 ]] && (((8#$mode & 0200) != 0)); then
@@ -562,12 +572,7 @@ validate_executable_policy() {
 	[[ -e $path ]] || fatal 69 "imapsync executable not found: $path"
 	local final uid mode
 	final=$(readlink -f -- "$path") || fatal 77 "cannot canonicalize imapsync executable: $path"
-	if [[ -L $path ]]; then
-		case $final in
-		/usr/* | /opt/* | /bin/* | /sbin/*) ;;
-		*) fatal 77 "imapsync executable symlink target is outside administrator-controlled paths: $final" ;;
-		esac
-	fi
+	[[ ! -L $path ]] || fatal 77 "imapsync executable must not be a symlink: $path"
 	[[ -f $final ]] || fatal 77 "imapsync path is not a regular file: $final"
 	[[ -x $final ]] || fatal 69 "imapsync path is not executable: $final"
 	uid=$(owner_uid "$final")
@@ -576,7 +581,9 @@ validate_executable_policy() {
 	if (((8#$mode & 0022) != 0)); then
 		fatal 77 "imapsync executable $final is group- or world-writable"
 	fi
+	check_parent_dirs_private "$path"
 	check_parent_dirs_private "$final"
+	IMAPSYNC_BINARY=$final
 }
 
 resolve_mailu_container() {
@@ -1142,6 +1149,8 @@ run_imapsync_phase() {
 	mkfifo -- "$fifo" || fatal 73 "cannot create phase output FIFO: $fifo"
 	tee -- "$console_log" <"$fifo" &
 	tee_pid=$!
+	ACTIVE_TEE=$tee_pid
+	ACTIVE_FIFO=$fifo
 	set +e
 	set -m
 	"${IMAPSYNC_CMD[@]}" >"$fifo" 2>&1 &
@@ -1154,6 +1163,8 @@ run_imapsync_phase() {
 	set +m
 	wait "$tee_pid"
 	tee_status=$?
+	ACTIVE_TEE=""
+	ACTIVE_FIFO=""
 	set -e
 	rm -f -- "$fifo"
 	if [[ $tee_status -ne 0 ]]; then

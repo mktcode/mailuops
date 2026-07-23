@@ -32,6 +32,15 @@ teardown() { teardown_mailuops_env; }
 	assert_failure_status 77
 }
 
+@test "sticky world writable config parent directory is rejected" {
+	mkdir "$TEST_ROOT/sticky"
+	chmod 1777 "$TEST_ROOT/sticky"
+	cp "$TEST_ROOT/config.json" "$TEST_ROOT/sticky/config.json"
+	chmod 600 "$TEST_ROOT/sticky/config.json"
+	run "$BATS_TEST_DIRNAME/../mailuops" --config "$TEST_ROOT/sticky/config.json" quota list
+	assert_failure_status 77
+}
+
 @test "invalid address is rejected before Docker" {
 	run mailuops_cmd quota get $'bad\naddr@example.com'
 	assert_failure_status 64

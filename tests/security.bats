@@ -49,6 +49,29 @@ teardown() { teardown_mailuops_env; }
 	[ ! -e "$MAILUOPS_STUB_DIR/imapsync.argv" ]
 }
 
+@test "imapsync executable symlink is rejected before execution" {
+	ln -s "$TEST_ROOT/bin/imapsync" "$TEST_ROOT/bin/imapsync-link"
+	jq --arg p "$TEST_ROOT/bin/imapsync-link" '.migration.imapsync_binary = $p' "$TEST_ROOT/config.json" >"$TEST_ROOT/config.tmp"
+	mv "$TEST_ROOT/config.tmp" "$TEST_ROOT/config.json"
+	chmod 600 "$TEST_ROOT/config.json"
+	run mailuops_cmd migrate probe info@example.com
+	assert_failure_status 77
+	[ ! -e "$MAILUOPS_STUB_DIR/imapsync.argv" ]
+}
+
+@test "sticky world writable imapsync parent directory is rejected" {
+	mkdir "$TEST_ROOT/sticky-bin"
+	chmod 1777 "$TEST_ROOT/sticky-bin"
+	cp "$TEST_ROOT/bin/imapsync" "$TEST_ROOT/sticky-bin/imapsync"
+	chmod 755 "$TEST_ROOT/sticky-bin/imapsync"
+	jq --arg p "$TEST_ROOT/sticky-bin/imapsync" '.migration.imapsync_binary = $p' "$TEST_ROOT/config.json" >"$TEST_ROOT/config.tmp"
+	mv "$TEST_ROOT/config.tmp" "$TEST_ROOT/config.json"
+	chmod 600 "$TEST_ROOT/config.json"
+	run mailuops_cmd migrate probe info@example.com
+	assert_failure_status 77
+	[ ! -e "$MAILUOPS_STUB_DIR/imapsync.argv" ]
+}
+
 @test "docker exec uses discovered container ID, not mutable name" {
 	run mailuops_cmd quota get info@example.com
 	assert_success

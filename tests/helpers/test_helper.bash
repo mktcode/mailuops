@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
 
 setup_mailuops_env() {
-	TEST_ROOT=$(mktemp -d)
+	local test_base
+	test_base=${MAILUOPS_TEST_BASE:-${HOME:?}/.mailuops-test-tmp}
+	mkdir -p -- "$test_base"
+	chmod 700 -- "$test_base"
+	TEST_ROOT=$(mktemp -d -p "$test_base" mailuops.XXXXXX)
 	chmod 700 "$TEST_ROOT"
 	mkdir -p "$TEST_ROOT/bin" "$TEST_ROOT/etc" "$TEST_ROOT/profiles" "$TEST_ROOT/secrets" "$TEST_ROOT/log" "$TEST_ROOT/state" "$TEST_ROOT/run" "$TEST_ROOT/stub"
 	chmod 700 "$TEST_ROOT"/*

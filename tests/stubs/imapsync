@@ -32,7 +32,7 @@ if [[ -n ${IMAPSYNC_OUTPUT_LINES:-} ]]; then
 		printf 'imapsync noisy line %05d abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz\n' "$i"
 	done
 fi
-if [[ $phase == sync && -n ${IMAPSYNC_CHILD_MARKER:-} ]]; then
+if [[ -n ${IMAPSYNC_CHILD_MARKER:-} && $phase == "${IMAPSYNC_CHILD_MARKER_PHASE:-sync}" ]]; then
 	(
 		trap 'printf "%s\n" terminated >"$IMAPSYNC_CHILD_MARKER"; exit 0' INT TERM HUP
 		printf '%s\n' "$$" >"$IMAPSYNC_CHILD_MARKER.ready"

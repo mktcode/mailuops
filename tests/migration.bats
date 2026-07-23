@@ -47,6 +47,15 @@ teardown() { teardown_mailuops_env; }
 	grep -R -F -- "imapsync noisy line 02999" "$TEST_ROOT/log"
 }
 
+@test "high-volume imapsync output preserves nonzero status" {
+	export IMAPSYNC_OUTPUT_LINES=3000
+	export IMAPSYNC_STATUS_FOLDERS=101
+	run mailuops_cmd migrate probe info@example.com
+	assert_failure_status 101
+	assert_output_contains "imapsync noisy line 02999"
+	grep -R -F -- "imapsync noisy line 02999" "$TEST_ROOT/log"
+}
+
 @test "real sync failure status is preserved" {
 	export IMAPSYNC_STATUS_SYNC=113
 	run mailuops_cmd migrate run info@example.com --yes
@@ -108,6 +117,49 @@ teardown() { teardown_mailuops_env; }
 	wait "$pid" 2>/dev/null || true
 }
 
+@test "SIGINT during login is forwarded and removes wrapper FIFO" {
+	export IMAPSYNC_CHILD_MARKER="$TEST_ROOT/login-signal.marker"
+	export IMAPSYNC_CHILD_MARKER_PHASE=login
+	run timeout -s INT 2s "$BATS_TEST_DIRNAME/../mailuops" --config "$TEST_ROOT/config.json" migrate probe info@example.com
+	[[ $status -ne 0 ]]
+	for _ in {1..30}; do
+		if [[ -s "$IMAPSYNC_CHILD_MARKER" ]]; then
+			break
+		fi
+		sleep 0.1
+	done
+	grep -Fx terminated "$IMAPSYNC_CHILD_MARKER"
+	[[ -z $(find "$TEST_ROOT/run" -name '*.fifo' -print -quit) ]]
+}
+
+@test "SIGTERM during folder plan is forwarded and removes wrapper FIFO" {
+	export IMAPSYNC_CHILD_MARKER="$TEST_ROOT/folders-signal.marker"
+	export IMAPSYNC_CHILD_MARKER_PHASE=folders
+	"$BATS_TEST_DIRNAME/../mailuops" --config "$TEST_ROOT/config.json" migrate probe info@example.com >"$TEST_ROOT/folders-signal.out" 2>"$TEST_ROOT/folders-signal.err" &
+	pid=$!
+	for _ in {1..80}; do
+		if [[ -e "$IMAPSYNC_CHILD_MARKER.ready" ]]; then
+			break
+		fi
+		sleep 0.1
+	done
+	[[ -e "$IMAPSYNC_CHILD_MARKER.ready" ]]
+	kill -TERM "$pid"
+	set +e
+	wait "$pid"
+	st=$?
+	set -e
+	[[ $st -ne 0 ]]
+	for _ in {1..30}; do
+		if [[ -s "$IMAPSYNC_CHILD_MARKER" ]]; then
+			break
+		fi
+		sleep 0.1
+	done
+	grep -Fx terminated "$IMAPSYNC_CHILD_MARKER"
+	[[ -z $(find "$TEST_ROOT/run" -name '*.fifo' -print -quit) ]]
+}
+
 @test "SIGTERM during sync is forwarded to imapsync process group" {
 	export IMAPSYNC_CHILD_MARKER="$TEST_ROOT/child-signal.marker"
 	"$BATS_TEST_DIRNAME/../mailuops" --config "$TEST_ROOT/config.json" migrate run info@example.com --yes >"$TEST_ROOT/signal.out" 2>"$TEST_ROOT/signal.err" &
@@ -132,4 +184,5 @@ teardown() { teardown_mailuops_env; }
 		sleep 0.1
 	done
 	grep -Fx terminated "$IMAPSYNC_CHILD_MARKER"
+	[[ -z $(find "$TEST_ROOT/run" -name '*.fifo' -print -quit) ]]
 }
