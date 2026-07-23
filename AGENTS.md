@@ -84,12 +84,14 @@ Use Bash, not POSIX `sh`.
 Required header:
 
 ```bash
-#!/usr/bin/env bash
+#!/usr/bin/env -S bash -p
 set -Eeuo pipefail
+set +x
 umask 077
+unset BASH_ENV ENV BASH_XTRACEFD
 ```
 
-Also set a deterministic locale early:
+The `-p` privileged Bash startup mode is required so inherited `BASH_ENV`, `SHELLOPTS`, and exported shell functions cannot affect privileged startup before the script body executes. Also set a deterministic locale early:
 
 ```bash
 export LC_ALL=C

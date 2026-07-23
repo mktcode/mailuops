@@ -4,6 +4,20 @@ load helpers/test_helper
 setup() { setup_mailuops_env; }
 teardown() { teardown_mailuops_env; }
 
+@test "BASH_ENV is ignored before script startup" {
+	printf 'printf executed >%q\n' "$TEST_ROOT/bash-env-marker" >"$TEST_ROOT/bash-env-hook"
+	chmod 700 "$TEST_ROOT/bash-env-hook"
+	run env BASH_ENV="$TEST_ROOT/bash-env-hook" "$BATS_TEST_DIRNAME/../mailuops" --version
+	assert_success
+	[ ! -e "$TEST_ROOT/bash-env-marker" ]
+}
+
+@test "inherited SHELLOPTS xtrace does not enable tracing" {
+	run env SHELLOPTS=xtrace "$BATS_TEST_DIRNAME/../mailuops" --version
+	assert_success
+	[[ $output == "mailuops 1.0.0-rc1" ]]
+}
+
 @test "0644 passfile is rejected before imapsync" {
 	chmod 644 "$TEST_ROOT/secrets/source.pass"
 	run mailuops_cmd migrate probe info@example.com

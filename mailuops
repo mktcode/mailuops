@@ -1,6 +1,8 @@
-#!/usr/bin/env bash
+#!/usr/bin/env -S bash -p
 set -Eeuo pipefail
+set +x
 umask 077
+unset BASH_ENV ENV BASH_XTRACEFD
 export LC_ALL=C
 
 # -----------------------------------------------------------------------------
