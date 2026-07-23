@@ -25,9 +25,16 @@ setup_mailuops_env() {
 	chmod 700 "$TEST_ROOT"/*
 	export PATH="$TEST_ROOT/bin:$PATH"
 	export MAILUOPS_STUB_DIR="$TEST_ROOT/stub"
+	MAILUOPS_EXECUTABLE="$BATS_TEST_DIRNAME/../mailuops"
 	cp "$BATS_TEST_DIRNAME/stubs/docker" "$TEST_ROOT/bin/docker"
 	cp "$BATS_TEST_DIRNAME/stubs/imapsync" "$TEST_ROOT/bin/imapsync"
+	if [[ ${MAILUOPS_DROP_PRIV:-0} -eq 1 ]]; then
+		cp "$BATS_TEST_DIRNAME/../mailuops" "$TEST_ROOT/bin/mailuops"
+		MAILUOPS_EXECUTABLE="$TEST_ROOT/bin/mailuops"
+	fi
+	export MAILUOPS_EXECUTABLE
 	chmod 755 "$TEST_ROOT/bin/docker" "$TEST_ROOT/bin/imapsync"
+	[[ ${MAILUOPS_DROP_PRIV:-0} -eq 0 ]] || chmod 755 "$TEST_ROOT/bin/mailuops"
 	printf 'CA fixture\n' >"$TEST_ROOT/ca.pem"
 	chmod 644 "$TEST_ROOT/ca.pem"
 	printf 'source-password-fixture\n' >"$TEST_ROOT/secrets/source.pass"
@@ -109,9 +116,9 @@ mailuops_prepare_run() {
 mailuops_exec() {
 	mailuops_prepare_run
 	if [[ ${MAILUOPS_DROP_PRIV:-0} -eq 1 ]]; then
-		setpriv --reuid "$MAILUOPS_TEST_UID" --regid "$MAILUOPS_TEST_GID" --clear-groups -- "$BATS_TEST_DIRNAME/../mailuops" "$@"
+		setpriv --reuid "$MAILUOPS_TEST_UID" --regid "$MAILUOPS_TEST_GID" --clear-groups -- "$MAILUOPS_EXECUTABLE" "$@"
 	else
-		"$BATS_TEST_DIRNAME/../mailuops" "$@"
+		"$MAILUOPS_EXECUTABLE" "$@"
 	fi
 }
 
@@ -122,9 +129,9 @@ mailuops_cmd() {
 mailuops_background_exec() {
 	mailuops_prepare_run
 	if [[ ${MAILUOPS_DROP_PRIV:-0} -eq 1 ]]; then
-		exec setpriv --reuid "$MAILUOPS_TEST_UID" --regid "$MAILUOPS_TEST_GID" --clear-groups -- "$BATS_TEST_DIRNAME/../mailuops" "$@"
+		exec setpriv --reuid "$MAILUOPS_TEST_UID" --regid "$MAILUOPS_TEST_GID" --clear-groups -- "$MAILUOPS_EXECUTABLE" "$@"
 	else
-		exec "$BATS_TEST_DIRNAME/../mailuops" "$@"
+		exec "$MAILUOPS_EXECUTABLE" "$@"
 	fi
 }
 
@@ -144,9 +151,9 @@ mailuops_timeout() {
 	shift 2
 	mailuops_prepare_run
 	if [[ ${MAILUOPS_DROP_PRIV:-0} -eq 1 ]]; then
-		timeout -s "$sig" "$duration" setpriv --reuid "$MAILUOPS_TEST_UID" --regid "$MAILUOPS_TEST_GID" --clear-groups -- "$BATS_TEST_DIRNAME/../mailuops" "$@"
+		timeout -s "$sig" "$duration" setpriv --reuid "$MAILUOPS_TEST_UID" --regid "$MAILUOPS_TEST_GID" --clear-groups -- "$MAILUOPS_EXECUTABLE" "$@"
 	else
-		timeout -s "$sig" "$duration" "$BATS_TEST_DIRNAME/../mailuops" "$@"
+		timeout -s "$sig" "$duration" "$MAILUOPS_EXECUTABLE" "$@"
 	fi
 }
 
