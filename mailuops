@@ -476,6 +476,7 @@ ensure_private_dir() {
 	local path=$1
 	local what=$2
 	is_absolute_path "$path" || fatal 65 "$what path is not absolute: $path"
+	check_parent_dirs_private "$path"
 	if [[ -e $path ]]; then
 		[[ -d $path && ! -L $path ]] || fatal 73 "$what path exists but is not a directory: $path"
 	else
@@ -534,6 +535,7 @@ validate_sensitive_file() {
 	local path=$1
 	local label=$2
 	is_absolute_path "$path" || fatal 65 "$label passfile path is not absolute: $path"
+	check_parent_dirs_private "$SECRETS_DIR"
 	[[ -d $SECRETS_DIR && ! -L $SECRETS_DIR ]] || fatal 77 "secrets_dir is not a regular directory: $SECRETS_DIR"
 	local dir_mode dir_uid
 	dir_uid=$(owner_uid "$SECRETS_DIR")
@@ -892,6 +894,7 @@ validate_profile_file_policy() {
 
 find_profile() {
 	local address=$1
+	check_parent_dirs_private "$PROFILES_DIR"
 	[[ -d $PROFILES_DIR && ! -L $PROFILES_DIR ]] || fatal 66 "migration profiles directory not found or not a directory: $PROFILES_DIR"
 	local dir_mode dir_uid
 	dir_uid=$(owner_uid "$PROFILES_DIR")

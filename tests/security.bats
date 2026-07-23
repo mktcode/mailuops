@@ -86,6 +86,58 @@ teardown() { teardown_mailuops_env; }
 	[ ! -e "$MAILUOPS_STUB_DIR/imapsync.argv" ]
 }
 
+@test "sticky world writable profiles_dir parent is rejected" {
+	mkdir "$TEST_ROOT/sticky-profiles" "$TEST_ROOT/sticky-profiles/profiles"
+	chmod 1777 "$TEST_ROOT/sticky-profiles"
+	chmod 700 "$TEST_ROOT/sticky-profiles/profiles"
+	cp "$TEST_ROOT/profiles/profile.json" "$TEST_ROOT/sticky-profiles/profiles/profile.json"
+	chmod 600 "$TEST_ROOT/sticky-profiles/profiles/profile.json"
+	jq --arg p "$TEST_ROOT/sticky-profiles/profiles" '.migration.profiles_dir = $p' "$TEST_ROOT/config.json" >"$TEST_ROOT/config.tmp"
+	mv "$TEST_ROOT/config.tmp" "$TEST_ROOT/config.json"
+	chmod 600 "$TEST_ROOT/config.json"
+	run mailuops_cmd migrate probe info@example.com
+	assert_failure_status 77
+	[ ! -e "$MAILUOPS_STUB_DIR/imapsync.argv" ]
+}
+
+@test "sticky world writable secrets_dir parent is rejected" {
+	mkdir "$TEST_ROOT/sticky-secrets" "$TEST_ROOT/sticky-secrets/secrets"
+	chmod 1777 "$TEST_ROOT/sticky-secrets"
+	chmod 700 "$TEST_ROOT/sticky-secrets/secrets"
+	cp "$TEST_ROOT/secrets/source.pass" "$TEST_ROOT/sticky-secrets/secrets/source.pass"
+	cp "$TEST_ROOT/secrets/destination.pass" "$TEST_ROOT/sticky-secrets/secrets/destination.pass"
+	chmod 600 "$TEST_ROOT/sticky-secrets/secrets/source.pass" "$TEST_ROOT/sticky-secrets/secrets/destination.pass"
+	jq --arg d "$TEST_ROOT/sticky-secrets/secrets" '.migration.secrets_dir = $d' "$TEST_ROOT/config.json" >"$TEST_ROOT/config.tmp"
+	mv "$TEST_ROOT/config.tmp" "$TEST_ROOT/config.json"
+	chmod 600 "$TEST_ROOT/config.json"
+	jq \
+		--arg s "$TEST_ROOT/sticky-secrets/secrets/source.pass" \
+		--arg p "$TEST_ROOT/sticky-secrets/secrets/destination.pass" \
+		'.source.password_file = $s | .destination.password_file = $p' \
+		"$TEST_ROOT/profiles/profile.json" >"$TEST_ROOT/profiles/profile.tmp"
+	mv "$TEST_ROOT/profiles/profile.tmp" "$TEST_ROOT/profiles/profile.json"
+	chmod 600 "$TEST_ROOT/profiles/profile.json"
+	run mailuops_cmd migrate probe info@example.com
+	assert_failure_status 77
+	[ ! -e "$MAILUOPS_STUB_DIR/imapsync.argv" ]
+}
+
+@test "sticky world writable runtime log and state parents are rejected" {
+	for field in runtime_dir log_dir state_dir; do
+		teardown_mailuops_env
+		setup_mailuops_env
+		mkdir "$TEST_ROOT/sticky-operational" "$TEST_ROOT/sticky-operational/value"
+		chmod 1777 "$TEST_ROOT/sticky-operational"
+		chmod 700 "$TEST_ROOT/sticky-operational/value"
+		jq --arg p "$TEST_ROOT/sticky-operational/value" --arg field "$field" '.migration[$field] = $p' "$TEST_ROOT/config.json" >"$TEST_ROOT/config.tmp"
+		mv "$TEST_ROOT/config.tmp" "$TEST_ROOT/config.json"
+		chmod 600 "$TEST_ROOT/config.json"
+		run mailuops_cmd migrate probe info@example.com
+		assert_failure_status 77
+		[ ! -e "$MAILUOPS_STUB_DIR/imapsync.argv" ]
+	done
+}
+
 @test "docker exec uses discovered container ID, not mutable name" {
 	run mailuops_cmd quota get info@example.com
 	assert_success
