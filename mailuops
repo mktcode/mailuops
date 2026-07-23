@@ -395,6 +395,7 @@ validate_hostname() {
 	[[ -n $host ]] || fatal 65 "$what host must not be empty"
 	[[ ! $host =~ [[:space:]] ]] || fatal 65 "$what host contains whitespace"
 	[[ $host != *://* && $host != */* && $host != *:* ]] || fatal 65 "$what host must be a DNS hostname, not a URI or address with a port"
+	[[ ! $host =~ ^[0-9]+(\.[0-9]+){3}$ ]] || fatal 65 "$what host must be a DNS hostname, not an IPv4 address: $host"
 	[[ $host =~ ^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*$ ]] || fatal 65 "$what host is not a valid DNS hostname: $host"
 }
 

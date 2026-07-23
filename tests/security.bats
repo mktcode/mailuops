@@ -6,10 +6,18 @@ teardown() { teardown_mailuops_env; }
 
 @test "non-root execution is rejected" {
 	command -v setpriv >/dev/null 2>&1 || skip "setpriv not available"
-	local uid gid
+	local uid gid public_base public_dir
 	uid=$(id -u nobody 2>/dev/null || printf '65534')
 	gid=$(id -g nobody 2>/dev/null || printf '65534')
-	run setpriv --reuid "$uid" --regid "$gid" --clear-groups -- "$BATS_TEST_DIRNAME/../mailuops" --version
+	public_base=${MAILUOPS_TEST_BASE:-/var/lib/mailuops-test-tmp}
+	mkdir -p -- "$public_base"
+	chmod 755 -- "$public_base"
+	public_dir=$(mktemp -d -p "$public_base" mailuops-nonroot.XXXXXX)
+	chmod 755 "$public_dir"
+	cp "$BATS_TEST_DIRNAME/../mailuops" "$public_dir/mailuops"
+	chmod 755 "$public_dir/mailuops"
+	run setpriv --reuid "$uid" --regid "$gid" --clear-groups -- "$public_dir/mailuops" --version
+	rm -rf -- "$public_dir"
 	assert_failure_status 77
 	assert_output_contains "must be run as root"
 }
@@ -69,6 +77,26 @@ EOF_FAKE_JQ
 	chown "$uid:$gid" "$TEST_ROOT/secrets/source.pass"
 	run mailuops_cmd migrate probe info@example.com
 	assert_failure_status 77
+	[ ! -e "$MAILUOPS_STUB_DIR/imapsync.argv" ]
+}
+
+@test "profile source host rejects IPv4 literal" {
+	jq '.source.host = "1.2.3.4"' "$TEST_ROOT/profiles/profile.json" >"$TEST_ROOT/profiles/profile.tmp"
+	mv "$TEST_ROOT/profiles/profile.tmp" "$TEST_ROOT/profiles/profile.json"
+	chmod 600 "$TEST_ROOT/profiles/profile.json"
+	run mailuops_cmd migrate probe info@example.com
+	assert_failure_status 65
+	[ ! -e "$MAILUOPS_STUB_DIR/docker.argv" ]
+	[ ! -e "$MAILUOPS_STUB_DIR/imapsync.argv" ]
+}
+
+@test "profile source host rejects newline" {
+	jq '.source.host = "imap.old-provider.example\nbad"' "$TEST_ROOT/profiles/profile.json" >"$TEST_ROOT/profiles/profile.tmp"
+	mv "$TEST_ROOT/profiles/profile.tmp" "$TEST_ROOT/profiles/profile.json"
+	chmod 600 "$TEST_ROOT/profiles/profile.json"
+	run mailuops_cmd migrate probe info@example.com
+	assert_failure_status 65
+	[ ! -e "$MAILUOPS_STUB_DIR/docker.argv" ]
 	[ ! -e "$MAILUOPS_STUB_DIR/imapsync.argv" ]
 }
 

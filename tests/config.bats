@@ -46,3 +46,23 @@ teardown() { teardown_mailuops_env; }
 	assert_failure_status 64
 	[ ! -e "$MAILUOPS_STUB_DIR/docker.argv" ]
 }
+
+@test "global destination host rejects IPv4 literal" {
+	jq '.migration.destination.host = "127.0.0.1"' "$TEST_ROOT/config.json" >"$TEST_ROOT/config.tmp"
+	mv "$TEST_ROOT/config.tmp" "$TEST_ROOT/config.json"
+	chmod 600 "$TEST_ROOT/config.json"
+	run mailuops_cmd migrate probe info@example.com
+	assert_failure_status 65
+	[ ! -e "$MAILUOPS_STUB_DIR/docker.argv" ]
+	[ ! -e "$MAILUOPS_STUB_DIR/imapsync.argv" ]
+}
+
+@test "global destination host rejects newline" {
+	jq '.migration.destination.host = "mail.example.net\nbad"' "$TEST_ROOT/config.json" >"$TEST_ROOT/config.tmp"
+	mv "$TEST_ROOT/config.tmp" "$TEST_ROOT/config.json"
+	chmod 600 "$TEST_ROOT/config.json"
+	run mailuops_cmd migrate probe info@example.com
+	assert_failure_status 65
+	[ ! -e "$MAILUOPS_STUB_DIR/docker.argv" ]
+	[ ! -e "$MAILUOPS_STUB_DIR/imapsync.argv" ]
+}
