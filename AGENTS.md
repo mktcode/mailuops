@@ -84,17 +84,20 @@ Use Bash, not POSIX `sh`.
 Required header:
 
 ```bash
-#!/usr/bin/env -S bash -p
+#!/usr/bin/bash -p
 set -Eeuo pipefail
 set +x
 umask 077
 unset BASH_ENV ENV BASH_XTRACEFD
 ```
 
-The `-p` privileged Bash startup mode is required so inherited `BASH_ENV`, `SHELLOPTS`, and exported shell functions cannot affect privileged startup before the script body executes. Also set a deterministic locale early:
+The runtime targets Debian-style systems with Bash installed at `/usr/bin/bash`. The `-p` privileged Bash startup mode is required so inherited `BASH_ENV`, `SHELLOPTS`, and exported shell functions cannot affect privileged startup before the script body executes. Also set a deterministic locale and a root-safe command search path early:
 
 ```bash
 export LC_ALL=C
+if [[ ${EUID:-$(id -u)} -eq 0 ]]; then
+	export PATH=/usr/sbin:/usr/bin:/sbin:/bin
+fi
 ```
 
 Use:
@@ -834,7 +837,7 @@ Add a static security test that inspects only the runtime executable, not docume
 
 ## Functional tests
 
-Use Bats and PATH-injected command stubs. No test may require Docker, a live IMAP server, network access, or real credentials.
+Use Bats and PATH-injected command stubs. Because the runtime resets PATH for root, tests may set an internal guarded `MAILUOPS_TEST_SAFE_PATH` only when Bats-specific guard variables are present. This hook exists solely to keep root-run tests offline and must not become a production command-path override. No test may require Docker, a live IMAP server, network access, or real credentials.
 
 ### Docker stub
 

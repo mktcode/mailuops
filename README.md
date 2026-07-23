@@ -55,7 +55,7 @@ The initial implementation targets:
 
 - Mailu 2024.06 deployed with Docker Compose
 - Dovecot 2.3.x inside the Mailu IMAP container
-- Debian 13 or a comparable GNU/Linux host
+- Debian 13 or a comparable GNU/Linux host with Bash installed at `/usr/bin/bash`
 - Bash 5.2 or newer
 - Docker CLI access
 - `jq` 1.6 or newer

@@ -10,6 +10,8 @@ setup_mailuops_env() {
 	mkdir -p "$TEST_ROOT/bin" "$TEST_ROOT/etc" "$TEST_ROOT/profiles" "$TEST_ROOT/secrets" "$TEST_ROOT/log" "$TEST_ROOT/state" "$TEST_ROOT/run" "$TEST_ROOT/stub"
 	chmod 700 "$TEST_ROOT"/*
 	export PATH="$TEST_ROOT/bin:$PATH"
+	export MAILUOPS_TEST_ROOT="$TEST_ROOT"
+	export MAILUOPS_TEST_SAFE_PATH="$TEST_ROOT/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 	export MAILUOPS_STUB_DIR="$TEST_ROOT/stub"
 	cp "$BATS_TEST_DIRNAME/stubs/docker" "$TEST_ROOT/bin/docker"
 	cp "$BATS_TEST_DIRNAME/stubs/imapsync" "$TEST_ROOT/bin/imapsync"
