@@ -1,40 +1,39 @@
 #!/usr/bin/env bash
 
 setup_mailuops_env() {
-	local test_base
-	MAILUOPS_DROP_PRIV=0
-	MAILUOPS_TEST_UID=""
-	MAILUOPS_TEST_GID=""
-	if [[ ${EUID:-$(id -u)} -eq 0 ]]; then
-		command -v setpriv >/dev/null 2>&1 || skip "root-run tests require util-linux setpriv"
-		MAILUOPS_TEST_UID=$(id -u nobody 2>/dev/null || printf '65534')
-		MAILUOPS_TEST_GID=$(id -g nobody 2>/dev/null || printf '65534')
-		MAILUOPS_DROP_PRIV=1
-		test_base=${MAILUOPS_TEST_BASE:-/var/lib/mailuops-test-tmp}
-		mkdir -p -- "$test_base"
-		chmod 755 -- "$test_base"
-	else
-		test_base=${MAILUOPS_TEST_BASE:-${HOME:?}/.mailuops-test-tmp}
-		mkdir -p -- "$test_base"
-		chmod 700 -- "$test_base"
+	local test_base repo_exe rewritten_path
+	if [[ ${EUID:-$(id -u)} -ne 0 ]]; then
+		skip "mailuops functional tests require root"
 	fi
-	export MAILUOPS_DROP_PRIV MAILUOPS_TEST_UID MAILUOPS_TEST_GID
+
+	test_base=${MAILUOPS_TEST_BASE:-/var/lib/mailuops-test-tmp}
+	mkdir -p -- "$test_base"
+	chmod 755 -- "$test_base"
+
 	TEST_ROOT=$(mktemp -d -p "$test_base" mailuops.XXXXXX)
 	chmod 700 "$TEST_ROOT"
 	mkdir -p "$TEST_ROOT/bin" "$TEST_ROOT/etc" "$TEST_ROOT/profiles" "$TEST_ROOT/secrets" "$TEST_ROOT/log" "$TEST_ROOT/state" "$TEST_ROOT/run" "$TEST_ROOT/stub"
 	chmod 700 "$TEST_ROOT"/*
 	export PATH="$TEST_ROOT/bin:$PATH"
 	export MAILUOPS_STUB_DIR="$TEST_ROOT/stub"
-	MAILUOPS_EXECUTABLE="$BATS_TEST_DIRNAME/../mailuops"
+
+	repo_exe="$BATS_TEST_DIRNAME/../mailuops"
+	rewritten_path="export PATH=$TEST_ROOT/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+	awk -v replacement="$rewritten_path" '
+		$0 == "export PATH=/usr/sbin:/usr/bin:/sbin:/bin" { print replacement; next }
+		{ print }
+	' "$repo_exe" >"$TEST_ROOT/bin/mailuops"
+	if ! grep -Fxq -- "$rewritten_path" "$TEST_ROOT/bin/mailuops"; then
+		printf 'failed to create test-only mailuops copy with stub PATH\n' >&2
+		return 1
+	fi
+	chmod 755 "$TEST_ROOT/bin/mailuops"
+	MAILUOPS_EXECUTABLE="$TEST_ROOT/bin/mailuops"
+	export MAILUOPS_EXECUTABLE
+
 	cp "$BATS_TEST_DIRNAME/stubs/docker" "$TEST_ROOT/bin/docker"
 	cp "$BATS_TEST_DIRNAME/stubs/imapsync" "$TEST_ROOT/bin/imapsync"
-	if [[ ${MAILUOPS_DROP_PRIV:-0} -eq 1 ]]; then
-		cp "$BATS_TEST_DIRNAME/../mailuops" "$TEST_ROOT/bin/mailuops"
-		MAILUOPS_EXECUTABLE="$TEST_ROOT/bin/mailuops"
-	fi
-	export MAILUOPS_EXECUTABLE
 	chmod 755 "$TEST_ROOT/bin/docker" "$TEST_ROOT/bin/imapsync"
-	[[ ${MAILUOPS_DROP_PRIV:-0} -eq 0 ]] || chmod 755 "$TEST_ROOT/bin/mailuops"
 	printf 'CA fixture\n' >"$TEST_ROOT/ca.pem"
 	chmod 644 "$TEST_ROOT/ca.pem"
 	printf 'source-password-fixture\n' >"$TEST_ROOT/secrets/source.pass"
@@ -108,18 +107,12 @@ EOF_PROFILE
 }
 
 mailuops_prepare_run() {
-	if [[ ${MAILUOPS_DROP_PRIV:-0} -eq 1 ]]; then
-		chown -R "$MAILUOPS_TEST_UID:$MAILUOPS_TEST_GID" "$TEST_ROOT"
-	fi
+	:
 }
 
 mailuops_exec() {
 	mailuops_prepare_run
-	if [[ ${MAILUOPS_DROP_PRIV:-0} -eq 1 ]]; then
-		setpriv --reuid "$MAILUOPS_TEST_UID" --regid "$MAILUOPS_TEST_GID" --clear-groups -- "$MAILUOPS_EXECUTABLE" "$@"
-	else
-		"$MAILUOPS_EXECUTABLE" "$@"
-	fi
+	"$MAILUOPS_EXECUTABLE" "$@"
 }
 
 mailuops_cmd() {
@@ -128,11 +121,7 @@ mailuops_cmd() {
 
 mailuops_background_exec() {
 	mailuops_prepare_run
-	if [[ ${MAILUOPS_DROP_PRIV:-0} -eq 1 ]]; then
-		exec setpriv --reuid "$MAILUOPS_TEST_UID" --regid "$MAILUOPS_TEST_GID" --clear-groups -- "$MAILUOPS_EXECUTABLE" "$@"
-	else
-		exec "$MAILUOPS_EXECUTABLE" "$@"
-	fi
+	exec "$MAILUOPS_EXECUTABLE" "$@"
 }
 
 mailuops_background_cmd() {
@@ -150,11 +139,7 @@ mailuops_timeout() {
 	local duration=$2
 	shift 2
 	mailuops_prepare_run
-	if [[ ${MAILUOPS_DROP_PRIV:-0} -eq 1 ]]; then
-		timeout -s "$sig" "$duration" setpriv --reuid "$MAILUOPS_TEST_UID" --regid "$MAILUOPS_TEST_GID" --clear-groups -- "$MAILUOPS_EXECUTABLE" "$@"
-	else
-		timeout -s "$sig" "$duration" "$MAILUOPS_EXECUTABLE" "$@"
-	fi
+	timeout -s "$sig" "$duration" "$MAILUOPS_EXECUTABLE" "$@"
 }
 
 assert_success() {

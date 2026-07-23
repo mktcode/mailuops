@@ -10,18 +10,18 @@ Run from a clean repository checkout:
 
 ```bash
 git status --short
-./mailuops --version
-./mailuops --help
-make test
+sudo ./mailuops --version
+sudo ./mailuops --help
+sudo make test
 make integration-preflight
 ```
 
 Expected:
 
 - `git status --short` is empty before tagging.
-- `./mailuops --version` prints exactly one line with the release candidate version.
-- `./mailuops --help` matches the command surface documented in `README.md`.
-- `make test` passes without Docker daemon, network, or real credentials.
+- `sudo ./mailuops --version` prints exactly one line with the release candidate version.
+- `sudo ./mailuops --help` matches the command surface documented in `README.md`.
+- `sudo make test` passes without Docker daemon, network, or real credentials.
 - `make integration-preflight` passes before any real Mailu integration run.
 
 ## Required real-Mailu integration check
@@ -81,7 +81,7 @@ sudo chmod 0600 /etc/mailuops/config.json /etc/mailuops/migrations.d/*.json /etc
 sudo chmod 0700 /etc/mailuops /etc/mailuops/migrations.d /etc/mailuops/secrets /var/log/mailuops /var/lib/mailuops
 ```
 
-The normal unprivileged test suite does not create passfiles owned by another UID. For production, manually verify passfiles are owned by the runtime user, normally `root:root`, and have mode `0600`; the runtime rejects mismatches with status `77`.
+The runtime is production root-only. Run the test suite as root; it creates root-owned passfiles and includes an explicit non-root refusal test. For production, verify passfiles are owned by `root:root` and have mode `0600`; the runtime rejects mismatches with status `77`.
 
 ## Tagging
 

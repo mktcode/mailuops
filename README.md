@@ -11,7 +11,7 @@ mailuops migrate probe ADDRESS
 mailuops migrate run ADDRESS
 ```
 
-The repository contains one self-contained Bash entrypoint named `mailuops`. It can be run directly from a clone or installed in `/usr/local/sbin`.
+The repository contains one self-contained Bash entrypoint named `mailuops`. It can be run directly from a clone with root privileges or installed in `/usr/local/sbin`.
 
 The utility is designed for unattended customer-server administration, but it intentionally defaults to fail-closed behavior. It never deletes source or destination messages, never accepts passwords on the command line, never silently disables certificate validation, and never starts a real migration before performing login and folder-mapping probes.
 
@@ -36,7 +36,7 @@ The following rules are part of the command contract, not optional recommendatio
 - TLS peer verification is enabled explicitly for both endpoints.
 - A trusted CA bundle must be supplied for both endpoints.
 - Passwords are read only from protected passfiles.
-- Passfiles must be regular, non-symlink files owned by the effective user and have mode `0600`.
+- Passfiles must be regular, non-symlink files owned by root and have mode `0600`.
 - Migration profiles are JSON data. They are never sourced or evaluated as shell code.
 - There is no raw imapsync-argument passthrough.
 - Destructive imapsync options are not exposed.
@@ -66,7 +66,7 @@ The initial implementation targets:
 
 The program does not assume that the current directory contains Mailu's Compose file. It discovers the running Dovecot container through Docker metadata or uses an explicitly configured container name.
 
-Root execution is recommended on a mail server. A non-root user can run the tool only when that user can access Docker and owns all selected configuration, secret, log, state, and runtime paths. Membership in the Docker group is effectively privileged access to the host and should be treated accordingly.
+`mailuops` is production root-only. It refuses to run when the effective UID is not 0. This avoids ambiguous Docker privilege boundaries, PATH trust, mixed ownership of configuration/secrets/logs, and partial non-root deployments.
 
 ## Installation
 
@@ -81,7 +81,7 @@ chmod 0755 mailuops
 Run it from the clone:
 
 ```bash
-./mailuops --help
+sudo ./mailuops --help
 ```
 
 Or install the executable globally:
@@ -372,7 +372,7 @@ Each passfile contains the password on its first line. The utility rejects:
 - symlinks
 - non-regular files
 - files outside the configured secrets directory
-- files not owned by the effective user
+- files not owned by root
 - modes other than `0600`
 - empty first lines
 - additional nonempty lines

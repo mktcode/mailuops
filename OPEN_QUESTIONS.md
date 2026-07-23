@@ -28,8 +28,8 @@ These are product, operational, and release questions to revisit before a final 
 
 ## Security and operations
 
-16. Who owns `/etc/mailuops` and related runtime paths in production: root only, or another dedicated user?
-17. Will operators run `mailuops` as root or as a Docker-group user?
+16. Resolved: `/etc/mailuops` and related runtime paths are root-owned in production.
+17. Resolved: operators run `mailuops` as root; Docker-group non-root execution is unsupported.
 18. Is Docker-group access acceptable in the deployment threat model?
 19. Should the repository include a sample `logrotate` configuration for operation logs?
 20. Should private wrapper logs avoid full passfile paths, or is storing passfile paths in protected logs acceptable?

@@ -91,13 +91,15 @@ umask 077
 unset BASH_ENV ENV BASH_XTRACEFD
 ```
 
-The runtime targets Debian-style systems with Bash installed at `/usr/bin/bash`. The `-p` privileged Bash startup mode is required so inherited `BASH_ENV`, `SHELLOPTS`, and exported shell functions cannot affect privileged startup before the script body executes. Also set a deterministic locale and a root-safe command search path early:
+The runtime targets Debian-style systems with Bash installed at `/usr/bin/bash`. The `-p` privileged Bash startup mode is required so inherited `BASH_ENV`, `SHELLOPTS`, and exported shell functions cannot affect privileged startup before the script body executes. The runtime must require EUID 0 before executing operational commands, then set a deterministic locale and root-safe command search path early:
 
 ```bash
 export LC_ALL=C
-if [[ ${EUID:-$(id -u)} -eq 0 ]]; then
-	export PATH=/usr/sbin:/usr/bin:/sbin:/bin
+if [[ $EUID -ne 0 ]]; then
+	printf 'mailuops: error: mailuops must be run as root\n' >&2
+	exit 77
 fi
+export PATH=/usr/sbin:/usr/bin:/sbin:/bin
 ```
 
 Use:
@@ -129,7 +131,7 @@ Format with `shfmt` using a documented repository configuration or fixed CI argu
 
 ## Dependencies
 
-The executable may depend on:
+The executable is production root-only and must refuse non-root execution with status `77`. It may depend on:
 
 - Bash 5.2+
 - Docker CLI
@@ -259,7 +261,7 @@ Required schema:
 - Both configured IMAP ports must be integer `993` in schema version 1.
 - `timeout_seconds` must be an integer from 1 through 3600.
 - The global config must be a regular non-symlink file.
-- It must be owned by the effective UID.
+- It must be owned by the effective UID, which is root because runtime is root-only.
 - It must not be writable by group or others.
 - Parent configuration directories must not be group- or world-writable.
 
@@ -329,7 +331,7 @@ A malformed unrelated profile should be reported during profile scanning rather 
 - Folder names must be nonempty and contain no NUL-equivalent input, CR, LF, or `=`.
 - Reject duplicate `from` names and duplicate identical pairs.
 - Limit mappings to a defensible maximum, for example 100.
-- Profile files must be regular non-symlink files owned by the effective UID and not group/world writable.
+- Profile files must be regular non-symlink files owned by the effective UID, which is root because runtime is root-only, and not group/world writable.
 - Profile directory must not be group/world writable.
 
 Check the obvious self-sync case and fail with `65` when all of these are identical:
@@ -351,7 +353,7 @@ For each passfile:
 3. Require canonical containment within `migration.secrets_dir`.
 4. Require a regular file.
 5. Reject symlinks.
-6. Require owner UID equal to the effective UID.
+6. Require owner UID equal to the effective UID, which is root because runtime is root-only.
 7. Require mode exactly `0600`.
 8. Require a nonempty first line.
 9. Reject additional nonempty lines.
@@ -837,7 +839,7 @@ Add a static security test that inspects only the runtime executable, not docume
 
 ## Functional tests
 
-Use Bats and PATH-injected command stubs. Because the runtime resets PATH for root, root-run tests must drop privileges or use a test-only wrapper outside the production executable; the production runtime must not contain an environment-controlled command-path override. No test may require Docker, a live IMAP server, network access, or real credentials.
+Use Bats and PATH-injected command stubs through a generated test-only copy of the executable whose safe PATH line is rewritten under `$TEST_ROOT`. Normal functional tests must run `mailuops` as root because non-root runtime is unsupported. The production runtime must not contain an environment-controlled command-path override. Static security tests must inspect the real `mailuops`, not the generated test copy. No test may require Docker, a live IMAP server, network access, or real credentials.
 
 ### Docker stub
 
@@ -1052,8 +1054,8 @@ bats tests
 
 Additionally:
 
-- `./mailuops --help` matches the README command surface.
-- `./mailuops --version` prints a single stable version string.
+- `sudo ./mailuops --help` matches the README command surface.
+- `sudo ./mailuops --version` prints a single stable version string.
 - tests run without network or Docker daemon access.
 - JSON output validates with `jq -e`.
 - no test fixture contains a real password.

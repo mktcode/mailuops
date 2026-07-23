@@ -4,6 +4,16 @@ load helpers/test_helper
 setup() { setup_mailuops_env; }
 teardown() { teardown_mailuops_env; }
 
+@test "non-root execution is rejected" {
+	command -v setpriv >/dev/null 2>&1 || skip "setpriv not available"
+	local uid gid
+	uid=$(id -u nobody 2>/dev/null || printf '65534')
+	gid=$(id -g nobody 2>/dev/null || printf '65534')
+	run setpriv --reuid "$uid" --regid "$gid" --clear-groups -- "$BATS_TEST_DIRNAME/../mailuops" --version
+	assert_failure_status 77
+	assert_output_contains "must be run as root"
+}
+
 @test "BASH_ENV is ignored before script startup" {
 	printf 'printf executed >%q\n' "$TEST_ROOT/bash-env-marker" >"$TEST_ROOT/bash-env-hook"
 	chmod 700 "$TEST_ROOT/bash-env-hook"
@@ -47,6 +57,16 @@ EOF_FAKE_JQ
 
 @test "0660 passfile is rejected before imapsync" {
 	chmod 660 "$TEST_ROOT/secrets/source.pass"
+	run mailuops_cmd migrate probe info@example.com
+	assert_failure_status 77
+	[ ! -e "$MAILUOPS_STUB_DIR/imapsync.argv" ]
+}
+
+@test "passfile owned by another UID is rejected" {
+	local uid gid
+	uid=$(id -u nobody 2>/dev/null || printf '65534')
+	gid=$(id -g nobody 2>/dev/null || printf '65534')
+	chown "$uid:$gid" "$TEST_ROOT/secrets/source.pass"
 	run mailuops_cmd migrate probe info@example.com
 	assert_failure_status 77
 	[ ! -e "$MAILUOPS_STUB_DIR/imapsync.argv" ]
@@ -250,6 +270,7 @@ EOF_FAKE_JQ
 	exe="$BATS_TEST_DIRNAME/../mailuops"
 	! grep -En '(^|[;&|[:space:]])(eval|source)([[:space:]]|$)|bash[[:space:]]+-c|sh[[:space:]]+-c' "$exe"
 	! grep -En -- '(^|[^A-Za-z0-9-])--(delete1|delete2|expunge1|expunge2|uidexpunge2)([^A-Za-z0-9-]|$)' "$exe"
+	! grep -En -- 'MAILUOPS_TEST_SAFE_PATH|MAILUOPS_TEST_ROOT|BATS_TEST_FILENAME|BATS_TEST_NAME' "$exe"
 }
 
 @test "profile symlink is rejected during scanning" {

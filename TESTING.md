@@ -72,7 +72,7 @@ The concrete concerns are:
 - **Admin exec user:** `docker compose exec admin ...` can create root-owned SQLite files if run as root before migrations complete. Integration admin CLI calls use `--user mailu`.
 - **Local PKI correctness:** Python/OpenSSL verification on this machine rejects CA certificates without CA key-usage extensions, so the generated test CA includes critical CA basic constraints and keyCertSign/cRLSign usage.
 - **imapsync side logs:** imapsync can create a `LOG_imapsync` directory relative to the current working directory even when `--logfile` is set, so the integration test changes to `$TEST_ROOT` before invoking `mailuops`.
-- **Privileged ownership branch:** normal `make test` is intentionally unprivileged and does not create passfiles owned by another UID. Before a production release, either run an optional privileged ownership check or manually verify that deployment passfiles are owned by the runtime user, normally `root:root`, and have mode `0600`.
+- **Root-only runtime:** `mailuops` refuses non-root execution. Run Bats as root; the helper creates a test-only executable copy with a stub-aware safe PATH while static security tests continue to inspect the real runtime. Passfiles are owned by `root:root` and have mode `0600`.
 
 When we do run it, use these guardrails:
 
