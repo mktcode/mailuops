@@ -683,10 +683,11 @@ resolve_mailu_container() {
 
 check_doveadm() {
 	local usage_output status
-	set +e
-	usage_output=$(docker exec -- "$MAILU_CONTAINER_ID" doveadm 2>&1)
-	status=$?
-	set -e
+	if usage_output=$(docker exec -- "$MAILU_CONTAINER_ID" doveadm 2>&1); then
+		status=0
+	else
+		status=$?
+	fi
 	if [[ -z $usage_output ]]; then
 		fatal 69 "doveadm is not available or produced no usage output in container $MAILU_CONTAINER_NAME ($MAILU_CONTAINER_ID)"
 	fi
