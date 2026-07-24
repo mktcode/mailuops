@@ -596,6 +596,7 @@ Before network access, run the configured binary with `--version` and help outpu
 --tmpdir
 --pidfile
 --pidfilelocking
+--logdir
 --logfile
 --noreleasecheck
 --automap
@@ -642,7 +643,8 @@ Base arguments:
 --tmpdir PHASE_PRIVATE_TMPDIR
 --pidfile PHASE_PIDFILE
 --pidfilelocking
---logfile PHASE_IMAPSYNC_LOG
+--logdir OPERATION_LOG_DIR
+--logfile PHASE_IMAPSYNC_LOG_BASENAME
 --noreleasecheck
 ```
 
@@ -737,7 +739,7 @@ A postflight quota query failure after successful imapsync is a warning and does
 
 Each phase has:
 
-- `<phase>.imapsync.log`, supplied through imapsync `--logfile`
+- `<phase>.imapsync.log`, supplied through imapsync `--logdir` and basename-only `--logfile`
 - `<phase>.console.log`, written by `tee` from combined stdout/stderr
 
 The wrapper has `wrapper.log` for timestamps, selected non-secret configuration, detected versions, phase starts, statuses, and final result.

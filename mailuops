@@ -1114,7 +1114,7 @@ check_imapsync_capabilities() {
 		--ssl1 --ssl2 --sslargs1 --sslargs2 --timeout1 --timeout2 --justlogin
 		--dry --justfolders --nofoldersizes --nofoldersizesatend --subscribe
 		--resyncflags --syncinternaldates --noexpunge1 --noexpunge2 --nouidexpunge2
-		--tmpdir --pidfile --pidfilelocking --logfile --noreleasecheck --automap --f1f2
+		--tmpdir --pidfile --pidfilelocking --logdir --logfile --noreleasecheck --automap --f1f2
 	)
 	local opt tokens
 	tokens=$(printf '%s\n' "$combined" | tr '[:space:],;:()[]{}' '\n' | grep '^--' || true)
@@ -1129,10 +1129,10 @@ build_imapsync_base_args() {
 	local phase=$1
 	local tmpdir="$OP_RUNTIME_DIR/$phase.tmp"
 	local pidfile="$OP_RUNTIME_DIR/$phase.pid"
-	local logfile="$OP_LOG_DIR/$phase.imapsync.log"
+	local logfile="$phase.imapsync.log"
 	mkdir -m 0700 -- "$tmpdir" || fatal 73 "cannot create phase temporary directory: $tmpdir"
-	: >"$logfile"
-	chmod 0600 -- "$logfile"
+	: >"$OP_LOG_DIR/$logfile"
+	chmod 0600 -- "$OP_LOG_DIR/$logfile"
 	IMAPSYNC_CMD=(
 		"$IMAPSYNC_BINARY"
 		--host1 "$SRC_HOST"
@@ -1160,6 +1160,7 @@ build_imapsync_base_args() {
 		--tmpdir "$tmpdir"
 		--pidfile "$pidfile"
 		--pidfilelocking
+		--logdir "$OP_LOG_DIR"
 		--logfile "$logfile"
 		--noreleasecheck
 	)

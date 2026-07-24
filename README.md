@@ -555,7 +555,8 @@ Immediately before the real transfer, the tool repeats the login test. It then r
 --pidfile PHASE_SPECIFIC_PIDFILE
 --pidfilelocking
 --tmpdir PRIVATE_OPERATION_TMPDIR
---logfile PRIVATE_PHASE_LOG
+--logdir PRIVATE_OPERATION_LOG_DIR
+--logfile PHASE_LOG_BASENAME
 --noreleasecheck
 ```
 

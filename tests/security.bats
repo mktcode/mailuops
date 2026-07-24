@@ -283,6 +283,17 @@ EOF_FAKE_JQ
 	! grep -Ex -- '--delete1|--delete2|--expunge1|--expunge2|--uidexpunge2' <<<"$argv"
 }
 
+@test "generated imapsync argv uses logdir with basename logfile" {
+	run mailuops_cmd migrate probe info@example.com
+	assert_success
+	argv=$(tr '\t' '\n' <"$MAILUOPS_STUB_DIR/imapsync.argv")
+	grep -Fx -- '--logdir' <<<"$argv"
+	grep -Fx -- '--logfile' <<<"$argv"
+	grep -Ex -- '0[12]-(login|folders)\.imapsync\.log' <<<"$argv"
+	! grep -Ex -- '.*/0[12]-(login|folders)\.imapsync\.log' <<<"$argv"
+	grep -R -- 'imapsync stub private log' "$TEST_ROOT/log"
+}
+
 @test "folder mapping value cannot inject an imapsync option" {
 	jq '.folders.map = [{"from":"--delete2","to":"Imported"}]' "$TEST_ROOT/profiles/profile.json" >"$TEST_ROOT/profiles/profile.tmp"
 	mv "$TEST_ROOT/profiles/profile.tmp" "$TEST_ROOT/profiles/profile.json"

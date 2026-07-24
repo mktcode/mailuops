@@ -11,7 +11,7 @@ if [[ ${1:-} == --help ]]; then
 		--ssl1 --ssl2 --sslargs1 --sslargs2 --timeout1 --timeout2 --justlogin \
 		--dry --justfolders --nofoldersizes --nofoldersizesatend: --subscribe \
 		--resyncflags --syncinternaldates --noexpunge1 --noexpunge2 --nouidexpunge2 \
-		--tmpdir --pidfile --pidfilelocking --logfile --noreleasecheck --automap --f1f2
+		--tmpdir --pidfile --pidfilelocking --logdir --logfile --noreleasecheck --automap --f1f2
 	exit 0
 fi
 {
@@ -20,14 +20,29 @@ fi
 	printf '\n'
 } >>"$MAILUOPS_STUB_DIR/imapsync.argv"
 phase=sync
-for arg in "$@"; do
-	case $arg in
+logdir=
+logfile=
+args=("$@")
+while [[ $# -gt 0 ]]; do
+	case $1 in
 	--justlogin) phase=login ;;
 	--justfolders) phase=folders ;;
+	--logdir)
+		logdir=${2:-}
+		shift
+		;;
+	--logfile)
+		logfile=${2:-}
+		shift
+		;;
 	esac
+	shift
 done
+if [[ -n $logdir && -n $logfile ]]; then
+	printf 'imapsync stub private log for %s\n' "$phase" >"$logdir/$logfile"
+fi
 if [[ ${IMAPSYNC_CHMOD_CA_AFTER_LOGIN:-0} == 1 && $phase == login ]]; then
-	for arg in "$@"; do
+	for arg in "${args[@]}"; do
 		case $arg in
 		SSL_ca_file=*) chmod 666 -- "${arg#SSL_ca_file=}" ;;
 		esac
